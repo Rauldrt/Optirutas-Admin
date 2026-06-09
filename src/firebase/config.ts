@@ -14,5 +14,5 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize Cloud Firestore
-export const db = getFirestore(app);
+// Initialize Cloud Firestore using the named database "optirutas"
+export const db = getFirestore(app, "optirutas");

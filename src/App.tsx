@@ -72,9 +72,9 @@ function App() {
         }
 
         const mockStops = [
-          { name: 'Farmacia Central', address: 'Av. Corrientes 2000, Buenos Aires', latitude: -34.6041, longitude: -58.3956, isCompleted: false, orderIndex: 1, deliveryDay: 'Lunes' },
-          { name: 'Distribuidora Pasteur', address: 'Pasteur 400, Buenos Aires', latitude: -34.6062, longitude: -58.4012, isCompleted: false, orderIndex: 2, deliveryDay: 'Lunes' },
-          { name: 'Clínica del Sol', address: 'Av. Coronel Díaz 2200, Buenos Aires', latitude: -34.5878, longitude: -58.4111, isCompleted: true, orderIndex: 3, deliveryDay: 'Lunes' }
+          { name: 'Farmacia Central', address: 'Av. Corrientes 2000, Buenos Aires', latitude: -34.6041, longitude: -58.3956, completed: false, orderIndex: 1, deliveryDay: 'Lunes' },
+          { name: 'Distribuidora Pasteur', address: 'Pasteur 400, Buenos Aires', latitude: -34.6062, longitude: -58.4012, completed: false, orderIndex: 2, deliveryDay: 'Lunes' },
+          { name: 'Clínica del Sol', address: 'Av. Coronel Díaz 2200, Buenos Aires', latitude: -34.5878, longitude: -58.4111, completed: true, orderIndex: 3, deliveryDay: 'Lunes' }
         ];
 
         for (const stop of mockStops) {
@@ -155,7 +155,7 @@ function App() {
                       {stops.map(stop => (
                         <div key={stop.id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-100/40 dark:bg-slate-900/20 border border-slate-200/30 dark:border-slate-800/20">
                           <div className="flex items-center gap-3">
-                            {stop.isCompleted ? (
+                            {stop.completed ? (
                               <CheckCircle2 className="w-5 h-5 text-emerald-500 flex-shrink-0" />
                             ) : (
                               <div className="w-5 h-5 rounded-full border-2 border-amber-500 flex items-center justify-center text-[10px] text-amber-500 font-black flex-shrink-0">

@@ -9,7 +9,7 @@ interface StatsGridProps {
 
 export const StatsGrid: React.FC<StatsGridProps> = ({ stops, clients }) => {
   const totalStops = stops.length;
-  const completedStops = stops.filter(s => s.isCompleted).length;
+  const completedStops = stops.filter(s => s.completed).length;
   const pendingStops = totalStops - completedStops;
   const completionRate = totalStops > 0 ? Math.round((completedStops / totalStops) * 100) : 0;
 

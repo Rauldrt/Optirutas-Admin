@@ -18,9 +18,10 @@ export interface Stop {
   address: string;
   latitude: number;
   longitude: number;
-  isCompleted: boolean;
+  completed: boolean;
   orderIndex: number;
   deliveryDay: string;
+  mapLink?: string;
 }
 
 export interface Client {
@@ -45,7 +46,7 @@ export interface RouteHistory {
 }
 
 // Collection Names
-const STOPS_COLLECTION = 'stops';
+const STOPS_COLLECTION = 'delivery_stops';
 const CLIENTS_COLLECTION = 'clients';
 const HISTORY_COLLECTION = 'route_history';
 
@@ -63,9 +64,10 @@ export const subscribeToStops = (callback: (stops: Stop[]) => void) => {
         address: data.address || '',
         latitude: Number(data.latitude) || 0,
         longitude: Number(data.longitude) || 0,
-        isCompleted: !!data.isCompleted,
+        completed: !!data.completed,
         orderIndex: data.orderIndex !== undefined ? Number(data.orderIndex) : 0,
         deliveryDay: data.deliveryDay || '',
+        mapLink: data.mapLink || '',
       });
     });
     callback(stops);
@@ -81,9 +83,10 @@ export const addStop = async (stop: Omit<Stop, 'id'> & { id?: string }) => {
       address: stop.address,
       latitude: Number(stop.latitude),
       longitude: Number(stop.longitude),
-      isCompleted: stop.isCompleted,
+      completed: stop.completed,
       orderIndex: Number(stop.orderIndex),
       deliveryDay: stop.deliveryDay,
+      mapLink: stop.mapLink || '',
     };
     if (stop.id) {
       await setDoc(doc(db, STOPS_COLLECTION, stop.id), data);
@@ -105,9 +108,10 @@ export const updateStop = async (id: string, updates: Partial<Omit<Stop, 'id'>>)
     if (updates.address !== undefined) cleanUpdates.address = updates.address;
     if (updates.latitude !== undefined) cleanUpdates.latitude = Number(updates.latitude);
     if (updates.longitude !== undefined) cleanUpdates.longitude = Number(updates.longitude);
-    if (updates.isCompleted !== undefined) cleanUpdates.isCompleted = updates.isCompleted;
+    if (updates.completed !== undefined) cleanUpdates.completed = updates.completed;
     if (updates.orderIndex !== undefined) cleanUpdates.orderIndex = Number(updates.orderIndex);
     if (updates.deliveryDay !== undefined) cleanUpdates.deliveryDay = updates.deliveryDay;
+    if (updates.mapLink !== undefined) cleanUpdates.mapLink = updates.mapLink;
 
     await updateDoc(docRef, cleanUpdates);
   } catch (error) {

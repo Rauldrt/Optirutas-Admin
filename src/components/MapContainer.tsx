@@ -168,13 +168,13 @@ export const MapView: React.FC<MapViewProps> = ({
             <Marker 
               key={`stop-${stop.id}`} 
               position={[stop.latitude, stop.longitude]}
-              icon={stop.isCompleted ? createCompletedStopIcon() : createPendingStopIcon(stop.orderIndex)}
+              icon={stop.completed ? createCompletedStopIcon() : createPendingStopIcon(stop.orderIndex)}
             >
               <Popup>
                 <div className="p-2 text-slate-800 dark:text-slate-100">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold text-white ${stop.isCompleted ? 'bg-emerald-500' : 'bg-amber-500'}`}>
-                      {stop.isCompleted ? 'Completado' : `Parada ${stop.orderIndex}`}
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold text-white ${stop.completed ? 'bg-emerald-500' : 'bg-amber-500'}`}>
+                      {stop.completed ? 'Completado' : `Parada ${stop.orderIndex}`}
                     </span>
                     <span className="text-[10px] font-semibold text-slate-500">
                       {stop.deliveryDay}

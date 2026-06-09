@@ -87,7 +87,7 @@ export const StopList: React.FC<StopListProps> = ({
       address,
       latitude: parseFloat(latitude),
       longitude: parseFloat(longitude),
-      isCompleted: editingStop ? editingStop.isCompleted : false,
+      completed: editingStop ? editingStop.completed : false,
       orderIndex: parseInt(orderIndex),
       deliveryDay,
     };
@@ -116,7 +116,7 @@ export const StopList: React.FC<StopListProps> = ({
 
   const toggleCompleted = async (stop: Stop) => {
     try {
-      await updateStop(stop.id, { isCompleted: !stop.isCompleted });
+      await updateStop(stop.id, { completed: !stop.completed });
     } catch (err) {
       console.error(err);
     }
@@ -221,7 +221,7 @@ export const StopList: React.FC<StopListProps> = ({
               <div 
                 key={stop.id} 
                 className={`p-4 flex items-center justify-between gap-4 transition-colors hover:bg-slate-50/40 dark:hover:bg-slate-900/10 ${
-                  stop.isCompleted ? 'bg-emerald-50/10 dark:bg-emerald-950/5' : ''
+                  stop.completed ? 'bg-emerald-50/10 dark:bg-emerald-950/5' : ''
                 }`}
               >
                 {/* Left: Reordering & Completion Status */}
@@ -249,7 +249,7 @@ export const StopList: React.FC<StopListProps> = ({
                     onClick={() => toggleCompleted(stop)}
                     className="text-slate-500 hover:text-purple-600 transition-colors"
                   >
-                    {stop.isCompleted ? (
+                    {stop.completed ? (
                       <CheckSquare className="w-6 h-6 text-emerald-500" />
                     ) : (
                       <Square className="w-6 h-6 text-slate-300 dark:text-slate-700" />
