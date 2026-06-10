@@ -2,6 +2,20 @@ import React, { useState } from 'react';
 import { Plus, Edit2, Trash2, MapPin, Search, Mail, Phone, ExternalLink, X } from 'lucide-react';
 import { addClient, updateClient, deleteClient, type Client } from '../services/firestore';
 
+// Helper to extract coordinates from Google Maps URL
+const extractCoords = (url: string): { lat: number; lng: number } | null => {
+  if (!url) return null;
+  const atMatch = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (atMatch) {
+    return { lat: parseFloat(atMatch[1]), lng: parseFloat(atMatch[2]) };
+  }
+  const queryMatch = url.match(/[?&](q|query|ll)=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (queryMatch) {
+    return { lat: parseFloat(queryMatch[2]), lng: parseFloat(queryMatch[3]) };
+  }
+  return null;
+};
+
 interface ClientDirectoryProps {
   clients: Client[];
   onSelectClient: (coords: [number, number]) => void;
@@ -18,8 +32,6 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
   // Form State
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
-  const [latitude, setLatitude] = useState('');
-  const [longitude, setLongitude] = useState('');
   const [mapLink, setMapLink] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -34,8 +46,6 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
     setEditingClient(null);
     setName('');
     setAddress('');
-    setLatitude('');
-    setLongitude('');
     setMapLink('');
     setPhone('');
     setEmail('');
@@ -46,8 +56,6 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
     setEditingClient(client);
     setName(client.name);
     setAddress(client.address);
-    setLatitude(client.latitude.toString());
-    setLongitude(client.longitude.toString());
     setMapLink(client.mapLink || '');
     setPhone(client.phone || '');
     setEmail(client.email || '');
@@ -56,19 +64,23 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !address || !latitude || !longitude) {
-      alert('Por favor completa todos los campos requeridos');
+    if (!name || !mapLink) {
+      alert('Por favor completa los campos requeridos (Nombre y Enlace de Google Maps)');
       return;
     }
 
+    const coords = extractCoords(mapLink);
+    const finalLatitude = coords ? coords.lat : (editingClient ? editingClient.latitude : 0);
+    const finalLongitude = coords ? coords.lng : (editingClient ? editingClient.longitude : 0);
+
     const clientData = {
       name,
-      address,
-      latitude: parseFloat(latitude),
-      longitude: parseFloat(longitude),
+      address: address || 'Sin dirección',
+      latitude: finalLatitude,
+      longitude: finalLongitude,
       mapLink,
-      phone,
-      email,
+      phone: phone || '',
+      email: email || '',
     };
 
     try {
@@ -243,7 +255,7 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
               {/* Address */}
               <div>
                 <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
-                  Dirección Comercial
+                  Dirección Comercial (Opcional)
                 </label>
                 <input
                   type="text"
@@ -251,40 +263,7 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
                   className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
-                  required
                 />
-              </div>
-
-              {/* Coordinates */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
-                    Latitud
-                  </label>
-                  <input
-                    type="number"
-                    step="any"
-                    placeholder="-34.6037"
-                    value={latitude}
-                    onChange={(e) => setLatitude(e.target.value)}
-                    className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
-                    Longitud
-                  </label>
-                  <input
-                    type="number"
-                    step="any"
-                    placeholder="-58.3816"
-                    value={longitude}
-                    onChange={(e) => setLongitude(e.target.value)}
-                    className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
-                    required
-                  />
-                </div>
               </div>
 
               {/* Contact Info (Phone & Email) */}
@@ -318,7 +297,7 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
               {/* MapLink */}
               <div>
                 <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
-                  Enlace de Google Maps (Opcional)
+                  Enlace de Google Maps (Obligatorio)
                 </label>
                 <input
                   type="url"
@@ -326,7 +305,25 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
                   value={mapLink}
                   onChange={(e) => setMapLink(e.target.value)}
                   className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                  required
                 />
+                {(() => {
+                  const coords = extractCoords(mapLink);
+                  if (coords) {
+                    return (
+                      <p className="text-xs text-emerald-600 dark:text-emerald-400 font-bold mt-2 flex items-center gap-1">
+                        <span>📍 Coordenadas detectadas: {coords.lat.toFixed(6)}, {coords.lng.toFixed(6)}</span>
+                      </p>
+                    );
+                  } else if (mapLink) {
+                    return (
+                      <p className="text-xs text-amber-500 font-semibold mt-2">
+                        ⚠️ Enlace sin coordenadas explícitas. Se guardará la ubicación como enlace (el marcador en el mapa no aparecerá).
+                      </p>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
 
               {/* Submit Buttons */}
