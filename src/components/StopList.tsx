@@ -27,7 +27,11 @@ export const StopList: React.FC<StopListProps> = ({
   const [longitude, setLongitude] = useState('');
   const [orderIndex, setOrderIndex] = useState('');
   const [deliveryDay, setDeliveryDay] = useState('Lunes');
-  const [selectedClientForStop, setSelectedClientForStop] = useState('');
+
+  
+  // Searchable Client Selector State
+  const [clientSearch, setClientSearch] = useState('');
+  const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
 
   // Filter stops by day
   const filteredStops = selectedDay === 'Todos' 
@@ -41,7 +45,7 @@ export const StopList: React.FC<StopListProps> = ({
 
   // Handle client selection to autofill stop fields
   const handleClientSelect = (clientId: string) => {
-    setSelectedClientForStop(clientId);
+
     const client = clients.find(c => c.id === clientId);
     if (client) {
       setName(client.name);
@@ -59,7 +63,9 @@ export const StopList: React.FC<StopListProps> = ({
     setLongitude('');
     setOrderIndex((stops.length + 1).toString());
     setDeliveryDay(selectedDay === 'Todos' ? 'Lunes' : selectedDay);
-    setSelectedClientForStop('');
+
+    setClientSearch('');
+    setIsClientDropdownOpen(false);
     setIsModalOpen(true);
   };
 
@@ -71,7 +77,7 @@ export const StopList: React.FC<StopListProps> = ({
     setLongitude(stop.longitude.toString());
     setOrderIndex(stop.orderIndex.toString());
     setDeliveryDay(stop.deliveryDay);
-    setSelectedClientForStop('');
+
     setIsModalOpen(true);
   };
 
@@ -326,22 +332,65 @@ export const StopList: React.FC<StopListProps> = ({
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               {/* Autofill from Clients Directory (only for adding stops) */}
               {!editingStop && clients.length > 0 && (
-                <div>
+                <div className="relative">
                   <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
                     Autocompletar desde Directorio de Clientes (Opcional)
                   </label>
-                  <select
-                    value={selectedClientForStop}
-                    onChange={(e) => handleClientSelect(e.target.value)}
-                    className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-700 dark:text-slate-200"
-                  >
-                    <option value="">-- Selecciona un cliente --</option>
-                    {clients.map(client => (
-                      <option key={client.id} value={client.id}>
-                        {client.name} - {client.address}
-                      </option>
-                    ))}
-                  </select>
+                  
+                  {/* Invisible overlay to close dropdown clicking outside */}
+                  {isClientDropdownOpen && (
+                    <div 
+                      className="fixed inset-0 z-40" 
+                      onClick={() => setIsClientDropdownOpen(false)} 
+                    />
+                  )}
+
+                  <div className="relative z-50">
+                    <input
+                      type="text"
+                      placeholder="Buscar cliente por nombre o dirección..."
+                      value={clientSearch}
+                      onChange={(e) => {
+                        setClientSearch(e.target.value);
+                        setIsClientDropdownOpen(true);
+                      }}
+                      onFocus={() => setIsClientDropdownOpen(true)}
+                      className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                    />
+                    
+                    {isClientDropdownOpen && (
+                      <div className="absolute left-0 right-0 mt-1.5 max-h-48 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl divide-y divide-slate-100 dark:divide-slate-800 z-50">
+                        {(() => {
+                          const filtered = clients.filter(c => 
+                            c.name.toLowerCase().includes(clientSearch.toLowerCase()) ||
+                            c.address.toLowerCase().includes(clientSearch.toLowerCase())
+                          );
+                          if (filtered.length === 0) {
+                            return (
+                              <div className="p-3 text-xs text-slate-400 text-center">
+                                No se encontraron clientes
+                              </div>
+                            );
+                          }
+                          return filtered.map(client => (
+                            <button
+                              key={client.id}
+                              type="button"
+                              onClick={() => {
+                                handleClientSelect(client.id);
+                                setClientSearch(client.name);
+                                setIsClientDropdownOpen(false);
+                              }}
+                              className="w-full text-left px-4 py-2.5 text-xs hover:bg-purple-50 dark:hover:bg-purple-950/20 text-slate-700 dark:text-slate-200 transition-colors"
+                            >
+                              <span className="font-bold block">{client.name}</span>
+                              <span className="text-slate-450 dark:text-slate-500 block truncate">{client.address}</span>
+                            </button>
+                          ));
+                        })()}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

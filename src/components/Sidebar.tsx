@@ -1,18 +1,22 @@
 import React from 'react';
-import { LayoutDashboard, MapPin, Users, History, Sun, Moon } from 'lucide-react';
+import { LayoutDashboard, MapPin, Users, History, Sun, Moon, X } from 'lucide-react';
 
 interface SidebarProps {
   currentTab: string;
   setCurrentTab: (tab: string) => void;
   darkMode: boolean;
   setDarkMode: (dark: boolean) => void;
+  sidebarOpen: boolean;
+  setSidebarOpen: (open: boolean) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
   currentTab, 
   setCurrentTab, 
   darkMode, 
-  setDarkMode 
+  setDarkMode,
+  sidebarOpen,
+  setSidebarOpen
 }) => {
   const menuItems = [
     { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard },
@@ -22,19 +26,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside className="w-64 h-[calc(100vh-2rem)] sticky top-4 m-4 flex flex-col justify-between glass border rounded-3xl p-6 shadow-xl transition-all duration-300">
+    <aside className={`fixed lg:sticky top-0 lg:top-4 left-0 bottom-0 z-50 w-64 h-screen lg:h-[calc(100vh-2rem)] m-0 lg:m-4 flex flex-col justify-between glass border-r lg:border border-slate-200/50 dark:border-slate-800/50 rounded-none lg:rounded-3xl p-6 shadow-2xl lg:shadow-xl transition-transform duration-300 lg:translate-x-0 ${
+      sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+    }`}>
       <div>
         {/* Logo Section */}
-        <div className="flex items-center gap-3 mb-8 px-2">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/35">
-            <span className="text-white font-black text-xl tracking-wider">O</span>
+        <div className="flex items-center justify-between mb-8 px-2">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/35">
+              <span className="text-white font-black text-xl tracking-wider">O</span>
+            </div>
+            <div>
+              <h1 className="font-extrabold text-lg bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300 bg-clip-text text-transparent leading-none">
+                Optirutas
+              </h1>
+              <span className="text-xs font-semibold text-purple-600 dark:text-purple-400">Admin Panel</span>
+            </div>
           </div>
-          <div>
-            <h1 className="font-extrabold text-lg bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300 bg-clip-text text-transparent leading-none">
-              Optirutas
-            </h1>
-            <span className="text-xs font-semibold text-purple-600 dark:text-purple-400">Admin Panel</span>
-          </div>
+          {/* Mobile Close Button */}
+          <button 
+            onClick={() => setSidebarOpen(false)}
+            className="lg:hidden p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Navigation Menu */}
@@ -45,7 +60,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             return (
               <button
                 key={item.id}
-                onClick={() => setCurrentTab(item.id)}
+                onClick={() => {
+                  setCurrentTab(item.id);
+                  setSidebarOpen(false);
+                }}
                 className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl text-sm font-semibold transition-all duration-300 ${
                   isActive 
                     ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-500/25 scale-[1.02]' 
