@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2, MapPin, Search, Mail, Phone, ExternalLink, X } from 'lucide-react';
 import { addClient, updateClient, deleteClient, type Client } from '../services/firestore';
 
@@ -35,6 +35,82 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
   const [mapLink, setMapLink] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+  
+  // Coordinate Resolution State
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
+  const [isResolving, setIsResolving] = useState(false);
+  const [resolveError, setResolveError] = useState<string | null>(null);
+
+  // Asynchronously resolve short links
+  const handleResolveLink = async (linkToResolve: string) => {
+    if (!linkToResolve) return;
+    
+    setIsResolving(true);
+    setResolveError(null);
+
+    // Try parsing instantly first (in case it is already a long URL)
+    const instantCoords = extractCoords(linkToResolve);
+    if (instantCoords) {
+      setLatitude(instantCoords.lat);
+      setLongitude(instantCoords.lng);
+      setIsResolving(false);
+      return;
+    }
+
+    // It is a short URL, call the open unshortening API
+    try {
+      const res = await fetch('https://www.redirectcheck.org/api/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: linkToResolve })
+      });
+      const data = await res.json();
+      
+      const finalUrl = data?.final_result?.final_url || linkToResolve;
+      const parsedCoords = extractCoords(finalUrl);
+
+      if (parsedCoords) {
+        setLatitude(parsedCoords.lat);
+        setLongitude(parsedCoords.lng);
+      } else {
+        setResolveError('No se pudieron extraer coordenadas del enlace acortado.');
+        setLatitude(null);
+        setLongitude(null);
+      }
+    } catch (err) {
+      console.error(err);
+      setResolveError('No se pudo conectar al servidor de resolución del enlace.');
+      setLatitude(null);
+      setLongitude(null);
+    } finally {
+      setIsResolving(false);
+    }
+  };
+
+  // Trigger link resolution on mapLink change
+  useEffect(() => {
+    if (!mapLink) {
+      setLatitude(null);
+      setLongitude(null);
+      setResolveError(null);
+      return;
+    }
+
+    const instantCoords = extractCoords(mapLink);
+    if (instantCoords) {
+      setLatitude(instantCoords.lat);
+      setLongitude(instantCoords.lng);
+      setResolveError(null);
+      return;
+    }
+
+    // Check if it is a short link and resolve automatically
+    const isShort = mapLink.includes('maps.app.goo.gl') || mapLink.includes('goo.gl') || mapLink.includes('bit.ly');
+    if (isShort && mapLink.startsWith('http') && !isResolving && latitude === null && !resolveError) {
+      handleResolveLink(mapLink);
+    }
+  }, [mapLink, latitude, isResolving, resolveError]);
 
   // Filter clients by search query
   const filteredClients = clients.filter(client => 
@@ -49,6 +125,9 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
     setMapLink('');
     setPhone('');
     setEmail('');
+    setLatitude(null);
+    setLongitude(null);
+    setResolveError(null);
     setIsModalOpen(true);
   };
 
@@ -59,6 +138,9 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
     setMapLink(client.mapLink || '');
     setPhone(client.phone || '');
     setEmail(client.email || '');
+    setLatitude(client.latitude);
+    setLongitude(client.longitude);
+    setResolveError(null);
     setIsModalOpen(true);
   };
 
@@ -69,9 +151,8 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
       return;
     }
 
-    const coords = extractCoords(mapLink);
-    const finalLatitude = coords ? coords.lat : (editingClient ? editingClient.latitude : 0);
-    const finalLongitude = coords ? coords.lng : (editingClient ? editingClient.longitude : 0);
+    const finalLatitude = latitude !== null ? latitude : 0;
+    const finalLongitude = longitude !== null ? longitude : 0;
 
     const clientData = {
       name,
@@ -299,31 +380,50 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
                 <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
                   Enlace de Google Maps (Obligatorio)
                 </label>
-                <input
-                  type="url"
-                  placeholder="https://maps.google.com/..."
-                  value={mapLink}
-                  onChange={(e) => setMapLink(e.target.value)}
-                  className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
-                  required
-                />
-                {(() => {
-                  const coords = extractCoords(mapLink);
-                  if (coords) {
-                    return (
-                      <p className="text-xs text-emerald-600 dark:text-emerald-400 font-bold mt-2 flex items-center gap-1">
-                        <span>📍 Coordenadas detectadas: {coords.lat.toFixed(6)}, {coords.lng.toFixed(6)}</span>
-                      </p>
-                    );
-                  } else if (mapLink) {
-                    return (
-                      <p className="text-xs text-amber-500 font-semibold mt-2">
-                        ⚠️ Enlace sin coordenadas explícitas. Se guardará la ubicación como enlace (el marcador en el mapa no aparecerá).
-                      </p>
-                    );
-                  }
-                  return null;
-                })()}
+                <div className="relative">
+                  <input
+                    type="url"
+                    placeholder="https://maps.google.com/..."
+                    value={mapLink}
+                    onChange={(e) => {
+                      setMapLink(e.target.value);
+                      setLatitude(null);
+                      setLongitude(null);
+                      setResolveError(null);
+                    }}
+                    className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100 pr-12"
+                    required
+                  />
+                  {isResolving && (
+                    <div className="absolute right-4 top-3.5">
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
+                    </div>
+                  )}
+                </div>
+
+                {isResolving && (
+                  <p className="text-xs text-purple-600 dark:text-purple-400 font-semibold mt-2 animate-pulse">
+                    🔄 Resolviendo enlace corto y extrayendo coordenadas...
+                  </p>
+                )}
+
+                {!isResolving && latitude !== null && longitude !== null && latitude !== 0 && (
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400 font-bold mt-2 flex items-center gap-1">
+                    <span>📍 Ubicación resuelta: {latitude.toFixed(6)}, {longitude.toFixed(6)}</span>
+                  </p>
+                )}
+
+                {!isResolving && resolveError && (
+                  <p className="text-xs text-rose-500 font-semibold mt-2">
+                    ⚠️ {resolveError} (El cliente se guardará pero no aparecerá en el mapa).
+                  </p>
+                )}
+
+                {!isResolving && !resolveError && mapLink && latitude === 0 && (
+                  <p className="text-xs text-amber-500 font-semibold mt-2">
+                    ⚠️ No se pudieron extraer coordenadas. Puedes intentar con un enlace completo que contenga la latitud y longitud.
+                  </p>
+                )}
               </div>
 
               {/* Submit Buttons */}
