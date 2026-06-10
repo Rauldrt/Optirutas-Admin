@@ -22,8 +22,7 @@ function App() {
   const [darkMode, setDarkMode] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   
-  // Mobile UI States
-  const [mobileView, setMobileView] = useState<'list' | 'map'>('list');
+
   
   // Real-time Firestore State
   const [stops, setStops] = useState<Stop[]>([]);
@@ -55,15 +54,19 @@ function App() {
     };
   }, []);
 
-  // Reset mobile view back to 'list' when tab changes
-  useEffect(() => {
-    setMobileView('list');
-  }, [currentTab]);
+
 
   const handleSelectLocation = (coords: [number, number]) => {
     setSelectedCoords(coords);
-    // Switch to map view on mobile so they can see where the focused marker is!
-    setMobileView('map');
+    
+    // Smoothly scroll to map on mobile
+    setTimeout(() => {
+      const mapElement = document.getElementById('map-section');
+      if (mapElement) {
+        mapElement.scrollIntoView({ behavior: 'smooth' });
+      }
+    }, 100);
+
     // Reset selected coords after a brief moment so clicking the same item triggers effect again
     setTimeout(() => setSelectedCoords(undefined), 1000);
   };
@@ -163,34 +166,10 @@ function App() {
             {/* Stats Dashboard */}
             <StatsGrid stops={stops} clients={clients} />
 
-            {/* Mobile View Toggle */}
-            <div className="flex lg:hidden bg-slate-200/50 dark:bg-slate-800/40 p-1 rounded-2xl w-full border border-slate-200/40 dark:border-slate-800/30">
-              <button 
-                onClick={() => setMobileView('list')}
-                className={`flex-1 py-2.5 rounded-xl text-xs font-extrabold transition-all duration-300 ${
-                  mobileView === 'list' 
-                    ? 'bg-white dark:bg-slate-900 text-purple-650 dark:text-purple-400 shadow-md scale-[1.01]' 
-                    : 'text-slate-500 dark:text-slate-400'
-                }`}
-              >
-                Estado de Entrega
-              </button>
-              <button 
-                onClick={() => setMobileView('map')}
-                className={`flex-1 py-2.5 rounded-xl text-xs font-extrabold transition-all duration-300 ${
-                  mobileView === 'map' 
-                    ? 'bg-white dark:bg-slate-900 text-purple-650 dark:text-purple-400 shadow-md scale-[1.01]' 
-                    : 'text-slate-500 dark:text-slate-400'
-                }`}
-              >
-                Mapa Interactivo
-              </button>
-            </div>
-
             {/* Quick Actions and Map Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-[450px]">
               {/* Left Column: Quick Stops Status */}
-              <div className={`${mobileView === 'list' ? 'block' : 'hidden lg:flex'} glass rounded-3xl p-6 border shadow-lg flex flex-col justify-between`}>
+              <div className="glass rounded-3xl p-6 border shadow-lg flex flex-col justify-between">
                 <div>
                   <h2 className="font-extrabold text-base mb-4">Estado de Entrega</h2>
                   {stops.length === 0 ? (
@@ -243,9 +222,8 @@ function App() {
               </div>
 
               {/* Right Columns: Map View */}
-              <div className={`${mobileView === 'map' ? 'block h-[450px] lg:h-auto' : 'hidden lg:block'} lg:col-span-2`}>
+              <div id="map-section" className="block h-[450px] lg:h-auto lg:col-span-2">
                 <MapView 
-                  key={`map-dashboard-${mobileView}`}
                   stops={stops} 
                   clients={clients} 
                   activeTab="dashboard" 
@@ -258,33 +236,9 @@ function App() {
 
         {currentTab === 'stops' && (
           <div className="space-y-6 flex-1 flex flex-col">
-            {/* Mobile View Toggle */}
-            <div className="flex lg:hidden bg-slate-200/50 dark:bg-slate-800/40 p-1 rounded-2xl w-full border border-slate-200/40 dark:border-slate-800/30">
-              <button 
-                onClick={() => setMobileView('list')}
-                className={`flex-1 py-2.5 rounded-xl text-xs font-extrabold transition-all duration-300 ${
-                  mobileView === 'list' 
-                    ? 'bg-white dark:bg-slate-900 text-purple-650 dark:text-purple-400 shadow-md scale-[1.01]' 
-                    : 'text-slate-500 dark:text-slate-400'
-                }`}
-              >
-                Lista de Paradas
-              </button>
-              <button 
-                onClick={() => setMobileView('map')}
-                className={`flex-1 py-2.5 rounded-xl text-xs font-extrabold transition-all duration-300 ${
-                  mobileView === 'map' 
-                    ? 'bg-white dark:bg-slate-900 text-purple-650 dark:text-purple-400 shadow-md scale-[1.01]' 
-                    : 'text-slate-500 dark:text-slate-400'
-                }`}
-              >
-                Mapa de la Ruta
-              </button>
-            </div>
-
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-[500px]">
               {/* Left: Stops List & Reordering */}
-              <div className={`${mobileView === 'list' ? 'block' : 'hidden lg:block'} lg:col-span-1`}>
+              <div className="block lg:col-span-1">
                 <StopList 
                   stops={stops} 
                   clients={clients}
@@ -292,9 +246,8 @@ function App() {
                 />
               </div>
               {/* Right: Map view of Stops */}
-              <div className={`${mobileView === 'map' ? 'block h-[450px] lg:h-auto' : 'hidden lg:block'} lg:col-span-2`}>
+              <div id="map-section" className="block h-[450px] lg:h-auto lg:col-span-2">
                 <MapView 
-                  key={`map-stops-${mobileView}`}
                   stops={stops} 
                   clients={clients} 
                   activeTab="stops" 
@@ -307,42 +260,17 @@ function App() {
 
         {currentTab === 'clients' && (
           <div className="space-y-6 flex-1 flex flex-col">
-            {/* Mobile View Toggle */}
-            <div className="flex lg:hidden bg-slate-200/50 dark:bg-slate-800/40 p-1 rounded-2xl w-full border border-slate-200/40 dark:border-slate-800/30">
-              <button 
-                onClick={() => setMobileView('list')}
-                className={`flex-1 py-2.5 rounded-xl text-xs font-extrabold transition-all duration-300 ${
-                  mobileView === 'list' 
-                    ? 'bg-white dark:bg-slate-900 text-purple-650 dark:text-purple-400 shadow-md scale-[1.01]' 
-                    : 'text-slate-500 dark:text-slate-400'
-                }`}
-              >
-                Directorio
-              </button>
-              <button 
-                onClick={() => setMobileView('map')}
-                className={`flex-1 py-2.5 rounded-xl text-xs font-extrabold transition-all duration-300 ${
-                  mobileView === 'map' 
-                    ? 'bg-white dark:bg-slate-900 text-purple-650 dark:text-purple-400 shadow-md scale-[1.01]' 
-                    : 'text-slate-500 dark:text-slate-400'
-                }`}
-              >
-                Mapa de Clientes
-              </button>
-            </div>
-
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-[500px]">
               {/* Left: Clients List */}
-              <div className={`${mobileView === 'list' ? 'block' : 'hidden lg:block'} lg:col-span-1`}>
+              <div className="block lg:col-span-1">
                 <ClientDirectory 
                   clients={clients} 
                   onSelectClient={handleSelectLocation} 
                 />
               </div>
               {/* Right: Map view of Clients */}
-              <div className={`${mobileView === 'map' ? 'block h-[450px] lg:h-auto' : 'hidden lg:block'} lg:col-span-2`}>
+              <div id="map-section" className="block h-[450px] lg:h-auto lg:col-span-2">
                 <MapView 
-                  key={`map-clients-${mobileView}`}
                   stops={stops} 
                   clients={clients} 
                   activeTab="clients" 
