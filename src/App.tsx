@@ -245,6 +245,7 @@ function App() {
               {/* Right Columns: Map View */}
               <div className={`${mobileView === 'map' ? 'block h-[450px] lg:h-auto' : 'hidden lg:block'} lg:col-span-2`}>
                 <MapView 
+                  key={`map-dashboard-${mobileView}`}
                   stops={stops} 
                   clients={clients} 
                   activeTab="dashboard" 
@@ -293,6 +294,7 @@ function App() {
               {/* Right: Map view of Stops */}
               <div className={`${mobileView === 'map' ? 'block h-[450px] lg:h-auto' : 'hidden lg:block'} lg:col-span-2`}>
                 <MapView 
+                  key={`map-stops-${mobileView}`}
                   stops={stops} 
                   clients={clients} 
                   activeTab="stops" 
@@ -340,6 +342,7 @@ function App() {
               {/* Right: Map view of Clients */}
               <div className={`${mobileView === 'map' ? 'block h-[450px] lg:h-auto' : 'hidden lg:block'} lg:col-span-2`}>
                 <MapView 
+                  key={`map-clients-${mobileView}`}
                   stops={stops} 
                   clients={clients} 
                   activeTab="clients" 
