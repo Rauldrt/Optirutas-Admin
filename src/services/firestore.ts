@@ -21,6 +21,7 @@ export interface Stop {
   orderIndex: number;
   deliveryDay: string;
   mapLink?: string;
+  completedAt?: number;
 }
 
 export interface Client {
@@ -77,6 +78,7 @@ export const subscribeToStops = (callback: (stops: Stop[]) => void) => {
         orderIndex: data.orderIndex !== undefined ? Number(data.orderIndex) : 0,
         deliveryDay: data.deliveryDay || '',
         mapLink: data.mapLink || '',
+        completedAt: data.completedAt ? Number(data.completedAt) : undefined,
       });
     });
     callback(stops);
@@ -99,6 +101,9 @@ export const addStop = async (stop: Omit<Stop, 'id'> & { id?: string }) => {
       deliveryDay: stop.deliveryDay,
       mapLink: stop.mapLink || '',
     };
+    if (stop.completedAt !== undefined) {
+      data.completedAt = stop.completedAt;
+    }
     await setDoc(doc(db, STOPS_COLLECTION, id), data);
   } catch (error) {
     console.error("Error adding stop: ", error);
@@ -115,7 +120,13 @@ export const updateStop = async (id: string, updates: Partial<Omit<Stop, 'id'>>)
     if (updates.address !== undefined) cleanUpdates.address = updates.address;
     if (updates.latitude !== undefined) cleanUpdates.latitude = Number(updates.latitude);
     if (updates.longitude !== undefined) cleanUpdates.longitude = Number(updates.longitude);
-    if (updates.completed !== undefined) cleanUpdates.completed = updates.completed;
+    if (updates.completed !== undefined) {
+      cleanUpdates.completed = updates.completed;
+      if (updates.completed === false) {
+        cleanUpdates.completedAt = null; // Clear timestamp if unmarked
+      }
+    }
+    if (updates.completedAt !== undefined) cleanUpdates.completedAt = updates.completedAt;
     if (updates.orderIndex !== undefined) cleanUpdates.orderIndex = Number(updates.orderIndex);
     if (updates.deliveryDay !== undefined) cleanUpdates.deliveryDay = updates.deliveryDay;
     if (updates.mapLink !== undefined) cleanUpdates.mapLink = updates.mapLink;

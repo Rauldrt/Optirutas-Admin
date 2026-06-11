@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   Plus, Edit2, Trash2, ArrowUp, ArrowDown, MapPin, 
-  CheckSquare, Square, RefreshCw, X, Archive
+  CheckSquare, Square, RefreshCw, X, Archive, Clock
 } from 'lucide-react';
 import { addStop, updateStop, deleteStop, addHistory, type Stop, type Client } from '../services/firestore';
 
@@ -128,7 +128,11 @@ export const StopList: React.FC<StopListProps> = ({
 
   const toggleCompleted = async (stop: Stop) => {
     try {
-      await updateStop(stop.id, { completed: !stop.completed });
+      const nextCompleted = !stop.completed;
+      await updateStop(stop.id, { 
+        completed: nextCompleted,
+        completedAt: nextCompleted ? Date.now() : null as any
+      });
     } catch (err) {
       console.error(err);
     }
@@ -167,6 +171,45 @@ export const StopList: React.FC<StopListProps> = ({
     }
   };
 
+  // Format milliseconds into HH:MM format
+  const formatTime = (millis?: number) => {
+    if (!millis) return '';
+    const date = new Date(millis);
+    return date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  // Format difference in minutes into "+X min" or similar
+  const formatDiff = (millisDiff: number) => {
+    const minutes = Math.round(millisDiff / 60000);
+    if (minutes < 1) return '< 1 min';
+    if (minutes >= 60) {
+      const hours = Math.floor(minutes / 60);
+      const remainingMinutes = minutes % 60;
+      return `+${hours}h ${remainingMinutes}m`;
+    }
+    return `+${minutes} min`;
+  };
+
+  // Calculate transit time between consecutive completed stops
+  const getTransitTimes = () => {
+    const completedStopsSorted = [...sortedStops]
+      .filter(s => s.completed && s.completedAt)
+      .sort((a, b) => (a.completedAt || 0) - (b.completedAt || 0));
+
+    const diffs: Record<string, string> = {};
+    for (let i = 1; i < completedStopsSorted.length; i++) {
+      const prev = completedStopsSorted[i - 1];
+      const curr = completedStopsSorted[i];
+      if (curr.completedAt && prev.completedAt) {
+        const diff = curr.completedAt - prev.completedAt;
+        diffs[curr.id] = formatDiff(diff);
+      }
+    }
+    return diffs;
+  };
+
+  const transitTimes = getTransitTimes();
+
   // Archive route actions
   const completedStops = sortedStops.filter(stop => stop.completed);
 
@@ -176,7 +219,34 @@ export const StopList: React.FC<StopListProps> = ({
       return;
     }
     setArchiveDriverName('');
-    setArchiveDuration('');
+    
+    // Auto-calculate duration
+    const completedWithTime = completedStops
+      .filter(s => s.completedAt)
+      .sort((a, b) => (a.completedAt || 0) - (b.completedAt || 0));
+
+    if (completedWithTime.length >= 2) {
+      const first = completedWithTime[0];
+      const last = completedWithTime[completedWithTime.length - 1];
+      if (first.completedAt && last.completedAt) {
+        const diff = last.completedAt - first.completedAt;
+        const minutes = Math.round(diff / 60000);
+        let durationStr = '';
+        if (minutes >= 60) {
+          const hours = Math.floor(minutes / 60);
+          const remainingMinutes = minutes % 60;
+          durationStr = `${hours}h ${remainingMinutes}m`;
+        } else {
+          durationStr = `${minutes}m`;
+        }
+        setArchiveDuration(durationStr);
+      } else {
+        setArchiveDuration('');
+      }
+    } else {
+      setArchiveDuration('');
+    }
+
     setIsArchiveModalOpen(true);
   };
 
@@ -333,7 +403,7 @@ export const StopList: React.FC<StopListProps> = ({
 
                   {/* Stop Information */}
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="font-extrabold text-sm text-slate-900 dark:text-white">
                         {stop.name}
                       </span>
@@ -343,6 +413,19 @@ export const StopList: React.FC<StopListProps> = ({
                       {selectedDay === 'Todos' && (
                         <span className="bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 text-[10px] font-bold px-2 py-0.5 rounded-full">
                           {stop.deliveryDay}
+                        </span>
+                      )}
+                      
+                      {/* Delivery Time and Transit Metrics */}
+                      {stop.completed && stop.completedAt && (
+                        <span className="bg-emerald-100/70 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[10px] font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                          <span>{formatTime(stop.completedAt)}</span>
+                          {transitTimes[stop.id] && (
+                            <span className="opacity-80 font-bold border-l border-emerald-300 dark:border-emerald-700 pl-1 ml-1 text-[9px]">
+                              {transitTimes[stop.id]}
+                            </span>
+                          )}
                         </span>
                       )}
                     </div>
