@@ -49,6 +49,16 @@ const STOPS_COLLECTION = 'delivery_stops';
 const CLIENTS_COLLECTION = 'clients';
 const HISTORY_COLLECTION = 'route_history';
 
+// Helper to generate a 32-bit signed integer ID as a string.
+// This is required because the Android app's local SQLite database (Room/SQLite)
+// parses document IDs to numeric types (Int/Long). If the ID is alphanumeric,
+// it fails to parse, causing Room to generate new IDs and sync them as duplicates.
+const generateNumericId = (): string => {
+  const min = -2147483648;
+  const max = 2147483647;
+  return Math.floor(Math.random() * (max - min + 1) + min).toString();
+};
+
 // ---------------- STOPS SERVICES ----------------
 
 export const subscribeToStops = (callback: (stops: Stop[]) => void) => {
@@ -77,7 +87,9 @@ export const subscribeToStops = (callback: (stops: Stop[]) => void) => {
 
 export const addStop = async (stop: Omit<Stop, 'id'> & { id?: string }) => {
   try {
+    const id = stop.id || generateNumericId();
     const data: Record<string, any> = {
+      id,
       name: stop.name,
       address: stop.address,
       latitude: Number(stop.latitude),
@@ -87,14 +99,7 @@ export const addStop = async (stop: Omit<Stop, 'id'> & { id?: string }) => {
       deliveryDay: stop.deliveryDay,
       mapLink: stop.mapLink || '',
     };
-    if (stop.id) {
-      data.id = stop.id;
-      await setDoc(doc(db, STOPS_COLLECTION, stop.id), data);
-    } else {
-      const docRef = doc(collection(db, STOPS_COLLECTION));
-      data.id = docRef.id;
-      await setDoc(docRef, data);
-    }
+    await setDoc(doc(db, STOPS_COLLECTION, id), data);
   } catch (error) {
     console.error("Error adding stop: ", error);
     throw error;
@@ -158,7 +163,9 @@ export const subscribeToClients = (callback: (clients: Client[]) => void) => {
 
 export const addClient = async (client: Omit<Client, 'id'> & { id?: string }) => {
   try {
+    const id = client.id || generateNumericId();
     const data: Record<string, any> = {
+      id,
       name: client.name,
       address: client.address,
       latitude: Number(client.latitude),
@@ -167,14 +174,7 @@ export const addClient = async (client: Omit<Client, 'id'> & { id?: string }) =>
       phone: client.phone || '',
       email: client.email || '',
     };
-    if (client.id) {
-      data.id = client.id;
-      await setDoc(doc(db, CLIENTS_COLLECTION, client.id), data);
-    } else {
-      const docRef = doc(collection(db, CLIENTS_COLLECTION));
-      data.id = docRef.id;
-      await setDoc(docRef, data);
-    }
+    await setDoc(doc(db, CLIENTS_COLLECTION, id), data);
   } catch (error) {
     console.error("Error adding client: ", error);
     throw error;
@@ -236,7 +236,9 @@ export const subscribeToHistory = (callback: (history: RouteHistory[]) => void) 
 
 export const addHistory = async (historyItem: Omit<RouteHistory, 'id'> & { id?: string }) => {
   try {
+    const id = historyItem.id || generateNumericId();
     const data: Record<string, any> = {
+      id,
       dateMillis: Number(historyItem.dateMillis),
       day: historyItem.day,
       stopsCount: Number(historyItem.stopsCount),
@@ -244,14 +246,7 @@ export const addHistory = async (historyItem: Omit<RouteHistory, 'id'> & { id?: 
       driverName: historyItem.driverName || 'Repartidor',
       duration: historyItem.duration || 'N/A',
     };
-    if (historyItem.id) {
-      data.id = historyItem.id;
-      await setDoc(doc(db, HISTORY_COLLECTION, historyItem.id), data);
-    } else {
-      const docRef = doc(collection(db, HISTORY_COLLECTION));
-      data.id = docRef.id;
-      await setDoc(docRef, data);
-    }
+    await setDoc(doc(db, HISTORY_COLLECTION, id), data);
   } catch (error) {
     console.error("Error adding history item: ", error);
     throw error;
