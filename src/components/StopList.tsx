@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { 
   Plus, Edit2, Trash2, ArrowUp, ArrowDown, MapPin, 
-  CheckSquare, Square, RefreshCw, X 
+  CheckSquare, Square, RefreshCw, X, Archive
 } from 'lucide-react';
-import { addStop, updateStop, deleteStop, type Stop, type Client } from '../services/firestore';
+import { addStop, updateStop, deleteStop, addHistory, type Stop, type Client } from '../services/firestore';
 
 interface StopListProps {
   stops: Stop[];
@@ -32,6 +32,12 @@ export const StopList: React.FC<StopListProps> = ({
   // Searchable Client Selector State
   const [clientSearch, setClientSearch] = useState('');
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
+
+  // Archive Route State
+  const [isArchiveModalOpen, setIsArchiveModalOpen] = useState(false);
+  const [archiveDriverName, setArchiveDriverName] = useState('');
+  const [archiveDuration, setArchiveDuration] = useState('');
+  const [isArchiving, setIsArchiving] = useState(false);
 
   // Filter stops by day
   const filteredStops = selectedDay === 'Todos' 
@@ -161,6 +167,50 @@ export const StopList: React.FC<StopListProps> = ({
     }
   };
 
+  // Archive route actions
+  const completedStops = sortedStops.filter(stop => stop.completed);
+
+  const openArchiveModal = () => {
+    if (completedStops.length === 0) {
+      alert('No hay paradas completadas para archivar.');
+      return;
+    }
+    setArchiveDriverName('');
+    setArchiveDuration('');
+    setIsArchiveModalOpen(true);
+  };
+
+  const handleArchiveRoute = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (completedStops.length === 0) return;
+
+    setIsArchiving(true);
+    try {
+      const summary = completedStops.map(s => s.name).join(', ');
+      await addHistory({
+        dateMillis: Date.now(),
+        day: selectedDay === 'Todos' ? 'Varios' : selectedDay,
+        stopsCount: completedStops.length,
+        stopsSummary: summary,
+        driverName: archiveDriverName.trim() || 'Repartidor',
+        duration: archiveDuration.trim() || 'N/A',
+      });
+
+      // Delete completed stops
+      for (const stop of completedStops) {
+        await deleteStop(stop.id);
+      }
+
+      setIsArchiveModalOpen(false);
+      alert('¡Ruta archivada en el historial con éxito!');
+    } catch (err) {
+      console.error('Error al archivar la ruta:', err);
+      alert('Hubo un error al archivar la ruta.');
+    } finally {
+      setIsArchiving(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Controls & Day Selector */}
@@ -194,6 +244,23 @@ export const StopList: React.FC<StopListProps> = ({
               <span>Numerar Secuencial</span>
             </button>
           )}
+          <button
+            onClick={openArchiveModal}
+            disabled={completedStops.length === 0}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all ${
+              completedStops.length > 0
+                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:opacity-95 shadow-lg shadow-emerald-500/25 cursor-pointer'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed border border-slate-200/50 dark:border-slate-800/50'
+            }`}
+            title={
+              completedStops.length > 0 
+                ? `Archivar ${completedStops.length} parada(s) completada(s)` 
+                : 'No hay paradas completadas para archivar'
+            }
+          >
+            <Archive className="w-3.5 h-3.5" />
+            <span>Archivar ({completedStops.length})</span>
+          </button>
           <button
             onClick={openAddModal}
             className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-5 py-2.5 rounded-2xl text-xs font-bold hover:opacity-95 shadow-lg shadow-purple-500/25 transition-all"
@@ -501,6 +568,96 @@ export const StopList: React.FC<StopListProps> = ({
                   className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-6 py-3 rounded-2xl text-sm font-bold hover:opacity-95 shadow-lg shadow-purple-500/25 transition-all"
                 >
                   Guardar Parada
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Archive Route Modal */}
+      {isArchiveModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fade-in">
+          <div className="glass rounded-3xl border shadow-2xl w-full max-w-lg overflow-hidden animate-slide-up">
+            <div className="p-6 border-b border-slate-200/50 dark:border-slate-800/50 flex items-center justify-between">
+              <h3 className="font-extrabold text-lg text-slate-900 dark:text-white flex items-center gap-2">
+                <Archive className="w-5 h-5 text-emerald-500" />
+                <span>Archivar Ruta en Historial</span>
+              </h3>
+              <button 
+                onClick={() => setIsArchiveModalOpen(false)}
+                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl transition-colors"
+                disabled={isArchiving}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleArchiveRoute} className="p-6 space-y-4">
+              <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/30 p-4 rounded-2xl">
+                <p className="text-xs text-emerald-800 dark:text-emerald-300 font-bold mb-2">
+                  Se archivarán {completedStops.length} paradas completadas del día: <span className="underline">{selectedDay === 'Todos' ? 'Varios (Semana)' : selectedDay}</span>
+                </p>
+                <div className="max-h-24 overflow-y-auto space-y-1.5 pr-1 text-[11px] text-emerald-650 dark:text-emerald-400 font-semibold">
+                  {completedStops.map(stop => (
+                    <div key={stop.id} className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                      <span className="truncate">{stop.name} ({stop.address})</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-100 dark:border-amber-900/30 p-3.5 rounded-2xl text-[11px] text-amber-800 dark:text-amber-300 font-semibold">
+                ⚠️ <span className="font-extrabold">Atención:</span> Esta acción registrará el recorrido en el historial y <span className="underline">eliminará permanentemente</span> estas {completedStops.length} paradas de la lista de paradas activas.
+              </div>
+
+              {/* Driver Name */}
+              <div>
+                <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
+                  Nombre del Chofer / Repartidor
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej. Juan Pérez"
+                  value={archiveDriverName}
+                  onChange={(e) => setArchiveDriverName(e.target.value)}
+                  className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                  disabled={isArchiving}
+                />
+              </div>
+
+              {/* Duration */}
+              <div>
+                <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
+                  Duración del Recorrido (Opcional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej. 2h 45m"
+                  value={archiveDuration}
+                  onChange={(e) => setArchiveDuration(e.target.value)}
+                  className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                  disabled={isArchiving}
+                />
+              </div>
+
+              {/* Submit Buttons */}
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200/50 dark:border-slate-800/50">
+                <button
+                  type="button"
+                  onClick={() => setIsArchiveModalOpen(false)}
+                  className="px-5 py-3 rounded-2xl text-sm font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  disabled={isArchiving}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isArchiving}
+                  className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-6 py-3 rounded-2xl text-sm font-bold hover:opacity-95 shadow-lg shadow-emerald-500/25 transition-all flex items-center gap-2 disabled:opacity-50"
+                >
+                  {isArchiving ? 'Archivando...' : 'Confirmar y Archivar'}
                 </button>
               </div>
             </form>
