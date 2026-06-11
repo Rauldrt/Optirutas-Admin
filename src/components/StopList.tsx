@@ -214,7 +214,7 @@ export const StopList: React.FC<StopListProps> = ({
   return (
     <div className="space-y-6">
       {/* Controls & Day Selector */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 glass p-6 rounded-3xl border shadow-lg">
+      <div className="flex flex-col gap-4 glass p-5 rounded-3xl border shadow-lg">
         {/* Day Tabs */}
         <div className="flex flex-wrap gap-1.5">
           {daysOfWeek.map(day => (
@@ -232,12 +232,14 @@ export const StopList: React.FC<StopListProps> = ({
           ))}
         </div>
 
+        <div className="border-t border-slate-200/50 dark:border-slate-800/50" />
+
         {/* Action Buttons */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           {sortedStops.length > 1 && (
             <button
               onClick={handleOptimizeIndices}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              className="flex-1 min-w-[130px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-2xl text-[11px] font-bold border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               title="Re-ordenar índices del 1 al N secuencialmente"
             >
               <RefreshCw className="w-3.5 h-3.5" />
@@ -247,10 +249,10 @@ export const StopList: React.FC<StopListProps> = ({
           <button
             onClick={openArchiveModal}
             disabled={completedStops.length === 0}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all ${
+            className={`flex-1 min-w-[110px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-2xl text-[11px] font-bold transition-all ${
               completedStops.length > 0
                 ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:opacity-95 shadow-lg shadow-emerald-500/25 cursor-pointer'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed border border-slate-200/50 dark:border-slate-800/50'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-405 dark:text-slate-650 cursor-not-allowed border border-slate-200/50 dark:border-slate-800/50'
             }`}
             title={
               completedStops.length > 0 
@@ -263,9 +265,9 @@ export const StopList: React.FC<StopListProps> = ({
           </button>
           <button
             onClick={openAddModal}
-            className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-5 py-2.5 rounded-2xl text-xs font-bold hover:opacity-95 shadow-lg shadow-purple-500/25 transition-all"
+            className="flex-1 min-w-[120px] flex items-center justify-center gap-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-3 py-2 rounded-2xl text-[11px] font-bold hover:opacity-95 shadow-lg shadow-purple-500/25 transition-all cursor-pointer"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-3.5 h-3.5" />
             <span>Añadir Parada</span>
           </button>
         </div>
