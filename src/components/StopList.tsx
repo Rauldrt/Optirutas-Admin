@@ -797,20 +797,20 @@ export const StopList: React.FC<StopListProps> = ({
           )}
         </div>
 
-        {/* Primary Action Buttons */}
-        <div className="flex flex-wrap items-center gap-2">
-          {dayStops.length > 2 && (
-            <button
-              onClick={() => handleApplyOptimizedOrder()}
-              disabled={isOptimizing}
-              className="flex-1 min-w-[140px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-2xl text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors cursor-pointer"
-              title="Ordenar paradas automáticamente según sus coordenadas geográficas"
-            >
-              <Wand2 className="w-3.5 h-3.5" />
-              <span>{isOptimizing ? 'Optimizando...' : 'Auto-Optimizar Ruta'}</span>
-            </button>
-          )}
-          {dayStops.length > 1 && (
+        {/* Route Optimization Tools (when 2+ stops) */}
+        {dayStops.length > 1 && (
+          <div className="flex items-center gap-2">
+            {dayStops.length > 2 && (
+              <button
+                onClick={() => handleApplyOptimizedOrder()}
+                disabled={isOptimizing}
+                className="flex-1 min-w-[140px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-2xl text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors cursor-pointer"
+                title="Ordenar paradas automáticamente según sus coordenadas geográficas"
+              >
+                <Wand2 className="w-3.5 h-3.5" />
+                <span>{isOptimizing ? 'Optimizando...' : 'Auto-Optimizar Ruta'}</span>
+              </button>
+            )}
             <button
               onClick={handleOptimizeIndices}
               className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-2xl text-[11px] font-bold border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
@@ -819,13 +819,17 @@ export const StopList: React.FC<StopListProps> = ({
               <RefreshCw className="w-3.5 h-3.5" />
               <span>1..N</span>
             </button>
-          )}
+          </div>
+        )}
+
+        {/* Primary Action Toolbar: Archivar, WhatsApp, CSV in a single line */}
+        <div className="grid grid-cols-3 gap-2">
           <button
             onClick={openArchiveModal}
             disabled={completedStops.length === 0}
-            className={`flex-1 min-w-[110px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-2xl text-[11px] font-bold transition-all ${
+            className={`flex items-center justify-center gap-1.5 px-2 py-2 rounded-2xl text-[11px] font-bold transition-all ${
               completedStops.length > 0
-                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:opacity-95 shadow-lg shadow-emerald-500/25 cursor-pointer'
+                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:opacity-95 shadow-md shadow-emerald-500/20 cursor-pointer'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed border border-slate-200/50 dark:border-slate-800/50'
             }`}
             title={
@@ -834,35 +838,44 @@ export const StopList: React.FC<StopListProps> = ({
                 : 'No hay paradas completadas para archivar'
             }
           >
-            <Archive className="w-3.5 h-3.5" />
-            <span>Archivar ({completedStops.length})</span>
+            <Archive className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Archivar ({completedStops.length})</span>
+          </button>
+
+          <button
+            onClick={handleShareWhatsApp}
+            disabled={dayStops.length === 0}
+            className={`flex items-center justify-center gap-1.5 px-2 py-2 rounded-2xl text-[11px] font-bold transition-colors ${
+              dayStops.length > 0
+                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 cursor-pointer'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed border border-slate-200/50 dark:border-slate-800/50'
+            }`}
+            title={dayStops.length > 0 ? "Compartir hoja de ruta por WhatsApp" : "No hay paradas para compartir"}
+          >
+            <Share2 className="w-3.5 h-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+            <span className="truncate">WhatsApp</span>
+          </button>
+
+          <button
+            onClick={handleExportCSV}
+            disabled={dayStops.length === 0}
+            className={`flex items-center justify-center gap-1.5 px-2 py-2 rounded-2xl text-[11px] font-bold transition-colors ${
+              dayStops.length > 0
+                ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200/60 dark:border-slate-700/60 cursor-pointer'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed border border-slate-200/50 dark:border-slate-800/50'
+            }`}
+            title={dayStops.length > 0 ? "Descargar hoja de ruta en CSV (Excel)" : "No hay paradas para exportar"}
+          >
+            <Download className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">CSV</span>
           </button>
         </div>
 
-        {/* Export / Share Toolbar */}
+        {/* Distance summary */}
         {dayStops.length > 0 && (
-          <div className="flex items-center justify-between gap-2 pt-1">
-            <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500">
-              Distancia estimada: <strong className="text-slate-700 dark:text-slate-300">{totalDistanceKm.toFixed(1)} km</strong>
-            </span>
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={handleShareWhatsApp}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 transition-colors cursor-pointer"
-                title="Compartir hoja de ruta por WhatsApp"
-              >
-                <Share2 className="w-3.5 h-3.5" />
-                <span>WhatsApp</span>
-              </button>
-              <button
-                onClick={handleExportCSV}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
-                title="Descargar hoja de ruta en CSV (Excel)"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>CSV</span>
-              </button>
-            </div>
+          <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 dark:text-slate-500 pt-0.5 px-1">
+            <span>Distancia estimada:</span>
+            <span className="text-slate-700 dark:text-slate-300 font-extrabold">{totalDistanceKm.toFixed(1)} km</span>
           </div>
         )}
       </div>
