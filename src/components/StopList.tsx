@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Plus, Edit2, Trash2, ArrowUp, ArrowDown, MapPin, 
   CheckSquare, Square, RefreshCw, X, Archive, Clock,
-  Wand2, Share2, Download, Crosshair, Search, Sparkles, Check
+  Wand2, Share2, Download, Crosshair, Search, Sparkles, Check, Layers, PlusCircle
 } from 'lucide-react';
 import { addStop, updateStop, deleteStop, addHistory, type Stop, type Client } from '../services/firestore';
 import { 
@@ -72,7 +72,16 @@ export const StopList: React.FC<StopListProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingStop, setEditingStop] = useState<Stop | null>(null);
 
-  // Form State
+  // Modal Mode: 'bulk' (Carga Masiva desde Clientes) vs 'single' (Formulario Individual)
+  const [modalMode, setModalMode] = useState<'bulk' | 'single'>('bulk');
+
+  // Bulk Mode State inside Add Stop Modal
+  const [bulkSearch, setBulkSearch] = useState('');
+  const [bulkSelectedClientIds, setBulkSelectedClientIds] = useState<string[]>([]);
+  const [bulkOptimizeOrder, setBulkOptimizeOrder] = useState(true);
+  const [isSavingBulk, setIsSavingBulk] = useState(false);
+
+  // Single Stop Form State
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
   const [mapLink, setMapLink] = useState('');
@@ -83,8 +92,9 @@ export const StopList: React.FC<StopListProps> = ({
   const [isResolvingLink, setIsResolvingLink] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [isOptimizing, setIsOptimizing] = useState(false);
+  const [savedToastCount, setSavedToastCount] = useState(0);
 
-  // Searchable Client Selector State
+  // Searchable Client Selector State (Single mode)
   const [clientSearch, setClientSearch] = useState('');
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
 
@@ -99,6 +109,7 @@ export const StopList: React.FC<StopListProps> = ({
     if (pickedCoordsForStop) {
       const { coords, draft } = pickedCoordsForStop;
       setEditingStop(draft.editingStop);
+      setModalMode('single');
       setName(draft.name);
       setAddress(draft.address);
       setMapLink(draft.mapLink || `https://www.google.com/maps?q=${coords[0]},${coords[1]}`);
@@ -205,9 +216,40 @@ export const StopList: React.FC<StopListProps> = ({
     };
   }, [dayStops, preferredStartStopId, selectedDay]);
 
+  // Bulk filtered clients inside Modal
+  const bulkFilteredClients = useMemo(() => {
+    return clients.filter(c =>
+      smartSearchMatch(bulkSearch, c.name, c.address, c.phone, c.email)
+    );
+  }, [clients, bulkSearch]);
+
+  // Preview of bulk selected stops in modal
+  const bulkPreviewStops = useMemo(() => {
+    const selectedClients = bulkSelectedClientIds
+      .map(id => clients.find(c => c.id === id))
+      .filter((c): c is Client => !!c);
+
+    const rawStops: Stop[] = selectedClients.map((client, idx) => ({
+      id: client.id,
+      name: client.name,
+      address: client.address,
+      latitude: client.latitude,
+      longitude: client.longitude,
+      completed: false,
+      orderIndex: idx + 1,
+      deliveryDay,
+      mapLink: client.mapLink || `https://www.google.com/maps?q=${client.latitude},${client.longitude}`
+    }));
+
+    if (bulkOptimizeOrder && rawStops.length > 2) {
+      return computeOptimizedStopOrder(rawStops);
+    }
+    return rawStops;
+  }, [bulkSelectedClientIds, clients, deliveryDay, bulkOptimizeOrder]);
+
   const daysOfWeek = ['Todos', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
-  // Handle client selection to autofill stop fields
+  // Handle client selection to autofill single stop fields
   const handleClientSelect = (clientId: string) => {
     const client = clients.find(c => c.id === clientId);
     if (client) {
@@ -219,23 +261,34 @@ export const StopList: React.FC<StopListProps> = ({
     }
   };
 
-  const openAddModal = () => {
-    setEditingStop(null);
+  const resetSingleFormFields = (nextOrderIdx: number) => {
     setName('');
     setAddress('');
     setMapLink('');
     setLatitude('');
     setLongitude('');
-    setOrderIndex((dayStops.length + 1).toString());
-    setDeliveryDay(selectedDay === 'Todos' ? todayName : selectedDay);
+    setOrderIndex(nextOrderIdx.toString());
     setResolveError(null);
     setClientSearch('');
     setIsClientDropdownOpen(false);
+  };
+
+  const openAddModal = () => {
+    setEditingStop(null);
+    const activeDay = selectedDay === 'Todos' ? todayName : selectedDay;
+    setDeliveryDay(activeDay);
+    resetSingleFormFields(dayStops.length + 1);
+    setBulkSearch('');
+    setBulkSelectedClientIds([]);
+    setSavedToastCount(0);
+    // Default to bulk mode if there are clients in the directory, otherwise single mode
+    setModalMode(clients.length > 0 ? 'bulk' : 'single');
     setIsModalOpen(true);
   };
 
   const openEditModal = (stop: Stop) => {
     setEditingStop(stop);
+    setModalMode('single');
     setName(stop.name);
     setAddress(stop.address);
     setMapLink(stop.mapLink || '');
@@ -244,11 +297,11 @@ export const StopList: React.FC<StopListProps> = ({
     setOrderIndex(stop.orderIndex.toString());
     setDeliveryDay(stop.deliveryDay);
     setResolveError(null);
+    setSavedToastCount(0);
     setIsModalOpen(true);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const saveSingleStop = async (keepOpenForNext: boolean) => {
     if (!name || !address || !latitude || !longitude || !orderIndex) {
       alert('Por favor completa todos los campos requeridos');
       return;
@@ -256,6 +309,7 @@ export const StopList: React.FC<StopListProps> = ({
 
     const latNum = parseFloat(latitude);
     const lngNum = parseFloat(longitude);
+    const currentOrderNum = parseInt(orderIndex) || 1;
     const generatedMapLink = mapLink || `https://www.google.com/maps?q=${latNum},${lngNum}`;
 
     const stopData = {
@@ -264,7 +318,7 @@ export const StopList: React.FC<StopListProps> = ({
       latitude: latNum,
       longitude: lngNum,
       completed: editingStop ? editingStop.completed : false,
-      orderIndex: parseInt(orderIndex),
+      orderIndex: currentOrderNum,
       deliveryDay,
       mapLink: generatedMapLink,
     };
@@ -272,12 +326,79 @@ export const StopList: React.FC<StopListProps> = ({
     try {
       if (editingStop) {
         await updateStop(editingStop.id, stopData);
+        setIsModalOpen(false);
       } else {
         await addStop(stopData);
+        if (keepOpenForNext) {
+          setSavedToastCount(prev => prev + 1);
+          resetSingleFormFields(currentOrderNum + 1);
+        } else {
+          setIsModalOpen(false);
+        }
       }
-      setIsModalOpen(false);
     } catch (err) {
       alert('Error guardando la parada');
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await saveSingleStop(false);
+  };
+
+  const handleSaveBulkStops = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (bulkPreviewStops.length === 0) return;
+
+    setIsSavingBulk(true);
+    try {
+      const existingInTargetDay = stops.filter(
+        s => s.deliveryDay.toLowerCase() === deliveryDay.toLowerCase()
+      );
+      let nextOrder = existingInTargetDay.length > 0
+        ? Math.max(...existingInTargetDay.map(s => s.orderIndex)) + 1
+        : 1;
+
+      for (const item of bulkPreviewStops) {
+        await addStop({
+          name: item.name,
+          address: item.address,
+          latitude: item.latitude,
+          longitude: item.longitude,
+          completed: false,
+          orderIndex: nextOrder++,
+          deliveryDay,
+          mapLink: item.mapLink,
+        });
+      }
+
+      setSelectedDay(deliveryDay);
+      setIsModalOpen(false);
+    } catch (err) {
+      console.error(err);
+      alert('Error al guardar las paradas en lote.');
+    } finally {
+      setIsSavingBulk(false);
+    }
+  };
+
+  const toggleBulkClient = (clientId: string) => {
+    setBulkSelectedClientIds(prev =>
+      prev.includes(clientId) ? prev.filter(id => id !== clientId) : [...prev, clientId]
+    );
+  };
+
+  const handleSelectAllFilteredBulk = () => {
+    const filteredIds = bulkFilteredClients.map(c => c.id);
+    const allAlreadySelected = filteredIds.every(id => bulkSelectedClientIds.includes(id));
+    if (allAlreadySelected) {
+      setBulkSelectedClientIds(prev => prev.filter(id => !filteredIds.includes(id)));
+    } else {
+      const merged = [...bulkSelectedClientIds];
+      for (const id of filteredIds) {
+        if (!merged.includes(id)) merged.push(id);
+      }
+      setBulkSelectedClientIds(merged);
     }
   };
 
@@ -507,6 +628,15 @@ export const StopList: React.FC<StopListProps> = ({
     }
   };
 
+  // Existing stop names in the target deliveryDay inside modal (to show badge if already added)
+  const existingNamesInModalDay = useMemo(() => {
+    return new Set(
+      stops
+        .filter(s => s.deliveryDay.toLowerCase() === deliveryDay.toLowerCase())
+        .map(s => s.name.toLowerCase())
+    );
+  }, [stops, deliveryDay]);
+
   return (
     <div className="space-y-4">
       {/* Controls & Day Selector */}
@@ -618,7 +748,7 @@ export const StopList: React.FC<StopListProps> = ({
             className="flex-1 min-w-[120px] flex items-center justify-center gap-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-3 py-2 rounded-2xl text-[11px] font-bold hover:opacity-95 shadow-lg shadow-purple-500/25 transition-all cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Añadir Parada</span>
+            <span>Añadir Paradas</span>
           </button>
         </div>
 
@@ -745,7 +875,7 @@ export const StopList: React.FC<StopListProps> = ({
               {stopSearchQuery ? 'No hay paradas que coincidan con tu búsqueda.' : 'No hay paradas registradas para este día.'}
             </p>
             <p className="text-xs mt-1">
-              {stopSearchQuery ? 'Prueba con otros términos más generales.' : 'Presiona "Añadir Parada" o selecciona clientes desde el mapa de Clientes.'}
+              {stopSearchQuery ? 'Prueba con otros términos más generales.' : 'Presiona "Añadir Paradas" para cargar varias a la vez.'}
             </p>
           </div>
         ) : (
@@ -865,243 +995,475 @@ export const StopList: React.FC<StopListProps> = ({
         )}
       </div>
 
-      {/* Add / Edit Stop Modal */}
+      {/* Add / Edit Stop Modal (Supports both Bulk Multi-Select and Single Stop with Save & Add Another) */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fade-in">
-          <div className="glass rounded-3xl border shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto animate-slide-up">
-            <div className="p-6 border-b border-slate-200/50 dark:border-slate-800/50 flex items-center justify-between">
-              <h3 className="font-extrabold text-lg text-slate-900 dark:text-white">
-                {editingStop ? 'Editar Parada' : 'Añadir Nueva Parada'}
-              </h3>
-              <button 
-                onClick={() => setIsModalOpen(false)}
-                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+          <div className="glass rounded-3xl border shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden animate-slide-up">
+            {/* Fixed Modal Header */}
+            <div className="p-5 border-b border-slate-200/50 dark:border-slate-800/50 space-y-3 flex-shrink-0">
+              <div className="flex items-center justify-between">
+                <h3 className="font-extrabold text-lg text-slate-900 dark:text-white">
+                  {editingStop ? 'Editar Parada' : 'Añadir Paradas a la Ruta'}
+                </h3>
+                <button 
+                  onClick={() => setIsModalOpen(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
 
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              {/* Autofill from Clients Directory (Smart Search) */}
-              {!editingStop && clients.length > 0 && (
-                <div className="relative">
-                  <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
-                    Autocompletar desde Directorio de Clientes (Búsqueda Inteligente)
-                  </label>
-                  
-                  {isClientDropdownOpen && (
-                    <div 
-                      className="fixed inset-0 z-40" 
-                      onClick={() => setIsClientDropdownOpen(false)} 
-                    />
-                  )}
-
-                  <div className="relative z-50">
-                    <input
-                      type="text"
-                      placeholder="Buscar por nombre, calle, teléfono o palabras sueltas..."
-                      value={clientSearch}
-                      onChange={(e) => {
-                        setClientSearch(e.target.value);
-                        setIsClientDropdownOpen(true);
-                      }}
-                      onFocus={() => setIsClientDropdownOpen(true)}
-                      className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
-                    />
-                    
-                    {isClientDropdownOpen && (
-                      <div className="absolute left-0 right-0 mt-1.5 max-h-48 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl divide-y divide-slate-100 dark:divide-slate-800 z-50">
-                        {(() => {
-                          const filtered = clients.filter(c => 
-                            smartSearchMatch(clientSearch, c.name, c.address, c.phone, c.email)
-                          );
-                          if (filtered.length === 0) {
-                            return (
-                              <div className="p-3 text-xs text-slate-400 text-center">
-                                No se encontraron clientes coincidentes
-                              </div>
-                            );
-                          }
-                          return filtered.map(client => (
-                            <button
-                              key={client.id}
-                              type="button"
-                              onClick={() => {
-                                handleClientSelect(client.id);
-                                setClientSearch(client.name);
-                                setIsClientDropdownOpen(false);
-                              }}
-                              className="w-full text-left px-4 py-2.5 text-xs hover:bg-purple-50 dark:hover:bg-purple-950/20 text-slate-700 dark:text-slate-200 transition-colors"
-                            >
-                              <span className="font-bold block">{client.name}</span>
-                              <span className="text-slate-450 dark:text-slate-500 block truncate">{client.address}</span>
-                            </button>
-                          ));
-                        })()}
-                      </div>
-                    )}
-                  </div>
+              {/* Mode Switcher Tabs (Only when creating new stops) */}
+              {!editingStop && (
+                <div className="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800/90 p-1 rounded-2xl">
+                  <button
+                    type="button"
+                    onClick={() => setModalMode('bulk')}
+                    className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                      modalMode === 'bulk'
+                        ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>Carga Masiva ({bulkSelectedClientIds.length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalMode('single')}
+                    className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                      modalMode === 'single'
+                        ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    <span>Parada Manual</span>
+                  </button>
                 </div>
               )}
+            </div>
 
-              {/* Stop Name */}
-              <div>
-                <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
-                  Nombre de la Parada
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ej. Farmacia Central, Local de Reparto..."
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
-                  required
-                />
-              </div>
+            {/* BULK SELECTION MODE */}
+            {!editingStop && modalMode === 'bulk' ? (
+              <form onSubmit={handleSaveBulkStops} className="flex-1 flex flex-col overflow-hidden">
+                <div className="p-5 space-y-4 overflow-y-auto flex-1">
+                  {/* Target Day & Optimization Toggle */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">
+                        Día de Entrega
+                      </label>
+                      <select
+                        value={deliveryDay}
+                        onChange={(e) => setDeliveryDay(e.target.value)}
+                        className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-3.5 py-2.5 text-xs font-bold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                      >
+                        {daysOfWeek.filter(d => d !== 'Todos').map(day => (
+                          <option key={day} value={day}>
+                            {day} {day.toLowerCase() === todayName.toLowerCase() ? '(Hoy)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-              {/* Address */}
-              <div>
-                <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
-                  Dirección
-                </label>
-                <input
-                  type="text"
-                  placeholder="Calle Falsa 123"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
-                  required
-                />
-              </div>
+                    <div className="flex items-end">
+                      <label className="w-full flex items-center gap-2 bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200/60 dark:border-indigo-800/50 rounded-2xl px-3.5 py-2.5 cursor-pointer text-xs font-bold text-indigo-900 dark:text-indigo-200">
+                        <input
+                          type="checkbox"
+                          checked={bulkOptimizeOrder}
+                          onChange={(e) => setBulkOptimizeOrder(e.target.checked)}
+                          className="rounded text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <Wand2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 flex-shrink-0" />
+                        <span className="truncate">Ordenar por ubicación</span>
+                      </label>
+                    </div>
+                  </div>
 
-              {/* Optional Google Maps Link */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                    Enlace de Google Maps (Extrae coordenadas)
-                  </label>
-                  {onRequestMapPick && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsModalOpen(false);
-                        onRequestMapPick({
-                          editingStop,
-                          name,
-                          address,
-                          mapLink,
-                          orderIndex,
-                          deliveryDay
-                        });
-                      }}
-                      className="inline-flex items-center gap-1 text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
-                    >
-                      <Crosshair className="w-3.5 h-3.5" />
-                      <span>Elegir en el mapa</span>
-                    </button>
+                  {/* Smart Search Bar for Clients */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                        Selecciona los clientes a incluir ({bulkFilteredClients.length})
+                      </label>
+                      {bulkFilteredClients.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleSelectAllFilteredBulk}
+                          className="text-[11px] font-extrabold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
+                        >
+                          {bulkFilteredClients.every(c => bulkSelectedClientIds.includes(c.id))
+                            ? 'Desmarcar filtrados'
+                            : 'Marcar todos los filtrados'}
+                        </button>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <Search className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Buscar por nombre, calle, teléfono o palabras sueltas..."
+                        value={bulkSearch}
+                        onChange={(e) => setBulkSearch(e.target.value)}
+                        className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl pl-10 pr-8 py-2.5 text-xs font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                      />
+                      {bulkSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setBulkSearch('')}
+                          className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 cursor-pointer"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Multi-select Client List */}
+                  <div className="border border-slate-200 dark:border-slate-800 rounded-2xl max-h-56 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/80 bg-white/50 dark:bg-slate-900/50">
+                    {bulkFilteredClients.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-slate-400">
+                        No se encontraron clientes en el directorio.
+                      </div>
+                    ) : (
+                      bulkFilteredClients.map(client => {
+                        const selIndex = bulkPreviewStops.findIndex(s => s.id === client.id);
+                        const isSelected = bulkSelectedClientIds.includes(client.id);
+                        const alreadyInDay = existingNamesInModalDay.has(client.name.toLowerCase());
+
+                        return (
+                          <button
+                            key={client.id}
+                            type="button"
+                            onClick={() => toggleBulkClient(client.id)}
+                            className={`w-full text-left px-3.5 py-2.5 flex items-center justify-between gap-3 transition-colors cursor-pointer ${
+                              isSelected
+                                ? 'bg-emerald-50/70 dark:bg-emerald-950/30'
+                                : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              {isSelected ? (
+                                <CheckSquare className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+                              ) : (
+                                <Square className="w-4 h-4 text-slate-300 dark:text-slate-600 flex-shrink-0" />
+                              )}
+                              <div className="truncate">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs font-extrabold text-slate-800 dark:text-slate-100 truncate">
+                                    {client.name}
+                                  </span>
+                                  {alreadyInDay && (
+                                    <span className="text-[9px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 px-1.5 py-0.2 rounded-full">
+                                      Ya en {deliveryDay}
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-[11px] text-slate-400 dark:text-slate-500 block truncate">
+                                  {client.address}
+                                </span>
+                              </div>
+                            </div>
+
+                            {isSelected && selIndex !== -1 && (
+                              <span className="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full flex-shrink-0">
+                                #{selIndex + 1}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Live Preview of Selected Sequence */}
+                  {bulkPreviewStops.length > 0 && (
+                    <div className="bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-900/40 p-3 rounded-2xl space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px] font-extrabold text-emerald-800 dark:text-emerald-300">
+                        <span>
+                          {bulkOptimizeOrder && bulkPreviewStops.length > 2
+                            ? '✨ Orden propuesto por ubicación:'
+                            : 'Secuencia a guardar:'}
+                        </span>
+                        <span>{calculateSequenceDistanceKm(bulkPreviewStops).toFixed(1)} km est.</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1 text-[11px] font-bold text-emerald-900 dark:text-emerald-200 max-h-20 overflow-y-auto">
+                        {bulkPreviewStops.map((s, idx) => (
+                          <React.Fragment key={s.id}>
+                            <span className="bg-white/80 dark:bg-slate-900/80 px-2 py-0.5 rounded-lg border border-emerald-200/50 dark:border-emerald-800/50">
+                              {idx + 1}. {s.name}
+                            </span>
+                            {idx < bulkPreviewStops.length - 1 && <span>→</span>}
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
-                <input
-                  type="url"
-                  placeholder="https://maps.google.com/... o maps.app.goo.gl/..."
-                  value={mapLink}
-                  onChange={(e) => setMapLink(e.target.value)}
-                  className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
-                />
-                {isResolvingLink && (
-                  <p className="text-xs text-purple-600 dark:text-purple-400 font-semibold mt-1.5 animate-pulse">
-                    🔄 Extrayendo coordenadas del enlace...
-                  </p>
-                )}
-                {resolveError && (
-                  <p className="text-xs text-amber-500 font-semibold mt-1.5">
-                    ⚠️ {resolveError}
-                  </p>
-                )}
-              </div>
 
-              {/* Coordinates */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
-                    Latitud
-                  </label>
-                  <input
-                    type="number"
-                    step="any"
-                    placeholder="-34.6037"
-                    value={latitude}
-                    onChange={(e) => setLatitude(e.target.value)}
-                    className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
-                    Longitud
-                  </label>
-                  <input
-                    type="number"
-                    step="any"
-                    placeholder="-58.3816"
-                    value={longitude}
-                    onChange={(e) => setLongitude(e.target.value)}
-                    className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
-                    required
-                  />
-                </div>
-              </div>
-
-              {/* Order and Day */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
-                    Día de Entrega
-                  </label>
-                  <select
-                    value={deliveryDay}
-                    onChange={(e) => setDeliveryDay(e.target.value)}
-                    className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                {/* Fixed Modal Footer */}
+                <div className="p-4 border-t border-slate-200/50 dark:border-slate-800/50 flex items-center justify-between gap-2 bg-white/50 dark:bg-slate-900/50 flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(false)}
+                    className="px-4 py-2.5 rounded-2xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                   >
-                    {daysOfWeek.filter(d => d !== 'Todos').map(day => (
-                      <option key={day} value={day}>
-                        {day} {day.toLowerCase() === todayName.toLowerCase() ? '(Hoy)' : ''}
-                      </option>
-                    ))}
-                  </select>
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={bulkPreviewStops.length === 0 || isSavingBulk}
+                    className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-5 py-2.5 rounded-2xl text-xs font-extrabold hover:opacity-95 shadow-lg shadow-emerald-500/25 transition-all disabled:opacity-40 cursor-pointer"
+                  >
+                    {isSavingBulk
+                      ? 'Guardando...'
+                      : `Guardar ${bulkPreviewStops.length} Parada(s)`}
+                  </button>
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
-                    Índice de Orden
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="1"
-                    value={orderIndex}
-                    onChange={(e) => setOrderIndex(e.target.value)}
-                    className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
-                    required
-                  />
-                </div>
-              </div>
+              </form>
+            ) : (
+              /* SINGLE / MANUAL STOP MODE */
+              <form onSubmit={handleSubmit} className="flex-1 flex flex-col overflow-hidden">
+                <div className="p-5 space-y-4 overflow-y-auto flex-1">
+                  {savedToastCount > 0 && (
+                    <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 px-3.5 py-2 rounded-2xl text-xs font-bold text-emerald-700 dark:text-emerald-300 flex items-center justify-between">
+                      <span>✅ ¡{savedToastCount} parada(s) guardada(s)! Puedes cargar la siguiente:</span>
+                    </div>
+                  )}
 
-              {/* Submit Buttons */}
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200/50 dark:border-slate-800/50">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-5 py-3 rounded-2xl text-sm font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-6 py-3 rounded-2xl text-sm font-bold hover:opacity-95 shadow-lg shadow-purple-500/25 transition-all"
-                >
-                  Guardar Parada
-                </button>
-              </div>
-            </form>
+                  {/* Autofill from Clients Directory (Smart Search) */}
+                  {!editingStop && clients.length > 0 && (
+                    <div className="relative">
+                      <label className="block text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">
+                        Autocompletar desde Directorio de Clientes (Búsqueda Inteligente)
+                      </label>
+                      
+                      {isClientDropdownOpen && (
+                        <div 
+                          className="fixed inset-0 z-40" 
+                          onClick={() => setIsClientDropdownOpen(false)} 
+                        />
+                      )}
+
+                      <div className="relative z-50">
+                        <input
+                          type="text"
+                          placeholder="Buscar por nombre, calle, teléfono o palabras sueltas..."
+                          value={clientSearch}
+                          onChange={(e) => {
+                            setClientSearch(e.target.value);
+                            setIsClientDropdownOpen(true);
+                          }}
+                          onFocus={() => setIsClientDropdownOpen(true)}
+                          className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                        />
+                        
+                        {isClientDropdownOpen && (
+                          <div className="absolute left-0 right-0 mt-1.5 max-h-44 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl divide-y divide-slate-100 dark:divide-slate-800 z-50">
+                            {(() => {
+                              const filtered = clients.filter(c => 
+                                smartSearchMatch(clientSearch, c.name, c.address, c.phone, c.email)
+                              );
+                              if (filtered.length === 0) {
+                                return (
+                                  <div className="p-3 text-xs text-slate-400 text-center">
+                                    No se encontraron clientes coincidentes
+                                  </div>
+                                );
+                              }
+                              return filtered.map(client => (
+                                <button
+                                  key={client.id}
+                                  type="button"
+                                  onClick={() => {
+                                    handleClientSelect(client.id);
+                                    setClientSearch(client.name);
+                                    setIsClientDropdownOpen(false);
+                                  }}
+                                  className="w-full text-left px-4 py-2.5 text-xs hover:bg-purple-50 dark:hover:bg-purple-950/20 text-slate-700 dark:text-slate-200 transition-colors"
+                                >
+                                  <span className="font-bold block">{client.name}</span>
+                                  <span className="text-slate-450 dark:text-slate-500 block truncate">{client.address}</span>
+                                </button>
+                              ));
+                            })()}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Stop Name */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">
+                      Nombre de la Parada
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Farmacia Central, Local de Reparto..."
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                      required
+                    />
+                  </div>
+
+                  {/* Address */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">
+                      Dirección
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Calle Falsa 123"
+                      value={address}
+                      onChange={(e) => setAddress(e.target.value)}
+                      className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                      required
+                    />
+                  </div>
+
+                  {/* Optional Google Maps Link */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                        Enlace de Google Maps (Extrae coordenadas)
+                      </label>
+                      {onRequestMapPick && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsModalOpen(false);
+                            onRequestMapPick({
+                              editingStop,
+                              name,
+                              address,
+                              mapLink,
+                              orderIndex,
+                              deliveryDay
+                            });
+                          }}
+                          className="inline-flex items-center gap-1 text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
+                        >
+                          <Crosshair className="w-3.5 h-3.5" />
+                          <span>Elegir en el mapa</span>
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="url"
+                      placeholder="https://maps.google.com/... o maps.app.goo.gl/..."
+                      value={mapLink}
+                      onChange={(e) => setMapLink(e.target.value)}
+                      className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                    />
+                    {isResolvingLink && (
+                      <p className="text-xs text-purple-600 dark:text-purple-400 font-semibold mt-1 animate-pulse">
+                        🔄 Extrayendo coordenadas del enlace...
+                      </p>
+                    )}
+                    {resolveError && (
+                      <p className="text-xs text-amber-500 font-semibold mt-1">
+                        ⚠️ {resolveError}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Coordinates */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">
+                        Latitud
+                      </label>
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="-34.6037"
+                        value={latitude}
+                        onChange={(e) => setLatitude(e.target.value)}
+                        className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">
+                        Longitud
+                      </label>
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="-58.3816"
+                        value={longitude}
+                        onChange={(e) => setLongitude(e.target.value)}
+                        className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  {/* Order and Day */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">
+                        Día de Entrega
+                      </label>
+                      <select
+                        value={deliveryDay}
+                        onChange={(e) => setDeliveryDay(e.target.value)}
+                        className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                      >
+                        {daysOfWeek.filter(d => d !== 'Todos').map(day => (
+                          <option key={day} value={day}>
+                            {day} {day.toLowerCase() === todayName.toLowerCase() ? '(Hoy)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">
+                        Índice de Orden
+                      </label>
+                      <input
+                        type="number"
+                        placeholder="1"
+                        value={orderIndex}
+                        onChange={(e) => setOrderIndex(e.target.value)}
+                        className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                        required
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Fixed Modal Footer */}
+                <div className="p-4 border-t border-slate-200/50 dark:border-slate-800/50 flex flex-wrap items-center justify-end gap-2 bg-white/50 dark:bg-slate-900/50 flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(false)}
+                    className="px-4 py-2.5 rounded-2xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer mr-auto"
+                  >
+                    Cancelar
+                  </button>
+                  {!editingStop && (
+                    <button
+                      type="button"
+                      onClick={() => saveSingleStop(true)}
+                      className="px-4 py-2.5 rounded-2xl text-xs font-extrabold bg-purple-100 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-900/70 transition-colors cursor-pointer"
+                      title="Guarda esta parada y limpia el formulario para cargar otra inmediatamente"
+                    >
+                      + Guardar y Cargar Otra
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-5 py-2.5 rounded-2xl text-xs font-extrabold hover:opacity-95 shadow-lg shadow-purple-500/25 transition-all cursor-pointer"
+                  >
+                    {editingStop ? 'Guardar Cambios' : 'Guardar y Cerrar'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
