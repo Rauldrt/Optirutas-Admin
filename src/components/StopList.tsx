@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Plus, Edit2, Trash2, ArrowUp, ArrowDown, MapPin, 
   CheckSquare, Square, RefreshCw, X, Archive, Clock,
-  Wand2, Share2, Download, Crosshair, Search, Sparkles, Check, Layers, PlusCircle
+  Wand2, Share2, Download, Crosshair, Search, Sparkles, Check, Layers, PlusCircle,
+  Calendar, ChevronDown
 } from 'lucide-react';
 import { addStop, updateStop, deleteStop, addHistory, type Stop, type Client } from '../services/firestore';
 import { 
@@ -61,6 +62,9 @@ export const StopList: React.FC<StopListProps> = ({
     if (onSelectDay) onSelectDay(day);
     else setInternalDay(day);
   };
+
+  // State to toggle the collapsible day selector subcard
+  const [isDayAccordionOpen, setIsDayAccordionOpen] = useState(false);
 
   // Smart search query for filtering stops
   const [stopSearchQuery, setStopSearchQuery] = useState('');
@@ -641,46 +645,126 @@ export const StopList: React.FC<StopListProps> = ({
     <div className="space-y-4">
       {/* Controls & Day Selector */}
       <div className="flex flex-col gap-4 glass p-5 rounded-3xl border shadow-lg">
-        {/* Day Tabs with Dynamic "Hoy" Indicator */}
-        <div className="flex flex-wrap gap-1.5">
-          {daysOfWeek.map(day => {
-            const countForDay = day === 'Todos' 
-              ? stops.length 
-              : stops.filter(s => s.deliveryDay.toLowerCase() === day.toLowerCase()).length;
-            const isToday = day.toLowerCase() === todayName.toLowerCase();
+        {/* Subcard Colapsable de Selección de Día */}
+        <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-slate-100/50 dark:bg-slate-900/40 overflow-hidden transition-all duration-300">
+          {/* Encabezado del Subcard: Muestra el día seleccionado (por defecto el día en curso) */}
+          <button
+            type="button"
+            onClick={() => setIsDayAccordionOpen(prev => !prev)}
+            className="w-full p-3 flex items-center justify-between gap-3 text-left hover:bg-slate-200/40 dark:hover:bg-slate-800/40 transition-colors cursor-pointer group"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className={`p-2 rounded-xl transition-colors ${
+                selectedDay.toLowerCase() === todayName.toLowerCase()
+                  ? 'bg-purple-600 text-white shadow-md shadow-purple-500/20'
+                  : 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20'
+              }`}>
+                <Calendar className="w-4 h-4" />
+              </div>
 
-            return (
-              <button
-                key={day}
-                onClick={() => setSelectedDay(day)}
-                className={`px-3 py-2 rounded-2xl text-xs font-bold transition-all duration-300 flex items-center gap-1.5 cursor-pointer ${
-                  selectedDay === day
-                    ? 'bg-purple-600 text-white shadow-md shadow-purple-500/20'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700/60'
-                }`}
-              >
-                <span>{day}</span>
-                {isToday && (
-                  <span className={`text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded-full font-black ${
-                    selectedDay === day
-                      ? 'bg-amber-400 text-slate-950'
-                      : 'bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300'
-                  }`}>
-                    Hoy
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-black text-sm text-slate-900 dark:text-white">
+                    {selectedDay === 'Todos' ? 'Todos los días' : selectedDay}
                   </span>
-                )}
-                {countForDay > 0 && (
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
-                    selectedDay === day 
-                      ? 'bg-white/20 text-white' 
-                      : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-                  }`}>
-                    {countForDay}
+                  {selectedDay.toLowerCase() === todayName.toLowerCase() && (
+                    <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded-full font-black bg-amber-400 text-slate-950 shadow-sm">
+                      HOY
+                    </span>
+                  )}
+                  <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
+                    {dayStops.length} Parada(s)
                   </span>
+                </div>
+                <p className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold mt-0.5">
+                  {selectedDay.toLowerCase() === todayName.toLowerCase()
+                    ? 'Día en curso • Toca para ver otros días'
+                    : 'Día seleccionado • Toca para cambiar de día'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <span className="text-[11px] font-bold text-purple-600 dark:text-purple-400 hidden sm:inline">
+                {isDayAccordionOpen ? 'Cerrar' : 'Cambiar día'}
+              </span>
+              <div className={`p-1 rounded-lg text-slate-400 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-transform duration-300 ${
+                isDayAccordionOpen ? 'rotate-180 text-purple-600 dark:text-purple-400' : ''
+              }`}>
+                <ChevronDown className="w-4 h-4" />
+              </div>
+            </div>
+          </button>
+
+          {/* Contenido Colapsable con el resto de los días */}
+          {isDayAccordionOpen && (
+            <div className="p-3 border-t border-slate-200/60 dark:border-slate-800/60 bg-white/60 dark:bg-slate-900/60 space-y-2 animate-fade-in">
+              <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 dark:text-slate-500 px-0.5">
+                <span>Seleccionar día de ruta:</span>
+                {selectedDay.toLowerCase() !== todayName.toLowerCase() && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedDay(todayName);
+                      setIsDayAccordionOpen(false);
+                    }}
+                    className="text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
+                  >
+                    Volver a Hoy ({todayName})
+                  </button>
                 )}
-              </button>
-            );
-          })}
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                {daysOfWeek.map(day => {
+                  const countForDay = day === 'Todos' 
+                    ? stops.length 
+                    : stops.filter(s => s.deliveryDay.toLowerCase() === day.toLowerCase()).length;
+                  const isToday = day.toLowerCase() === todayName.toLowerCase();
+                  const isSelected = selectedDay.toLowerCase() === day.toLowerCase();
+
+                  return (
+                    <button
+                      key={day}
+                      type="button"
+                      onClick={() => {
+                        setSelectedDay(day);
+                        setIsDayAccordionOpen(false);
+                      }}
+                      className={`px-2.5 py-2 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-between gap-1.5 cursor-pointer ${
+                        isSelected
+                          ? 'bg-purple-600 text-white shadow-md shadow-purple-500/25 ring-2 ring-purple-400/40'
+                          : 'bg-slate-100/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700/80'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1 truncate">
+                        <span className="truncate">{day}</span>
+                        {isToday && (
+                          <span className={`text-[8px] uppercase tracking-wider px-1 py-0.2 rounded-full font-black ${
+                            isSelected
+                              ? 'bg-amber-400 text-slate-950'
+                              : 'bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300'
+                          }`}>
+                            Hoy
+                          </span>
+                        )}
+                      </div>
+
+                      {countForDay > 0 && (
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold flex-shrink-0 ${
+                          isSelected 
+                            ? 'bg-white/20 text-white' 
+                            : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                        }`}>
+                          {countForDay}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Smart Flexible Search Bar for Stops */}
