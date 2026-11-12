@@ -89,6 +89,9 @@ export const StopList: React.FC<StopListProps> = ({
   // State to toggle the collapsible day selector subcard
   const [isDayAccordionOpen, setIsDayAccordionOpen] = useState(false);
 
+  // State to toggle the collapsible route records / stop list card
+  const [isStopListCollapsed, setIsStopListCollapsed] = useState(false);
+
   // Smart search query for filtering stops
   const [stopSearchQuery, setStopSearchQuery] = useState('');
 
@@ -844,6 +847,26 @@ export const StopList: React.FC<StopListProps> = ({
     <div className="space-y-4">
       {/* Controls & Day Selector */}
       <div className="flex flex-col gap-4 glass p-5 rounded-3xl border shadow-lg">
+        {/* Smart Flexible Search Bar for Stops (Ubicado arriba del selector de día) */}
+        <div className="relative">
+          <Search className="absolute left-3.5 top-2.5 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Búsqueda inteligente de paradas (nombre, calle, altura, estado)..."
+            value={stopSearchQuery}
+            onChange={(e) => setStopSearchQuery(e.target.value)}
+            className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl pl-10 pr-8 py-2 text-xs font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+          />
+          {stopSearchQuery && (
+            <button
+              onClick={() => setStopSearchQuery('')}
+              className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
         {/* Subcard Colapsable de Selección de Día */}
         <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-slate-100/50 dark:bg-slate-900/40 overflow-hidden transition-all duration-300">
           {/* Encabezado del Subcard: Día seleccionado + Botón Píldora "Añadir" en el ancho sobrante */}
@@ -973,26 +996,6 @@ export const StopList: React.FC<StopListProps> = ({
                 })}
               </div>
             </div>
-          )}
-        </div>
-
-        {/* Smart Flexible Search Bar for Stops */}
-        <div className="relative">
-          <Search className="absolute left-3.5 top-2.5 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Búsqueda inteligente de paradas (nombre, calle, altura, estado)..."
-            value={stopSearchQuery}
-            onChange={(e) => setStopSearchQuery(e.target.value)}
-            className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl pl-10 pr-8 py-2 text-xs font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
-          />
-          {stopSearchQuery && (
-            <button
-              onClick={() => setStopSearchQuery('')}
-              className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
           )}
         </div>
 
@@ -1156,16 +1159,39 @@ export const StopList: React.FC<StopListProps> = ({
         </div>
       )}
 
-      {/* Stop List Grid */}
-      <div className="glass rounded-3xl border shadow-lg overflow-hidden">
-        <div className="p-6 border-b border-slate-200/50 dark:border-slate-800/50 flex items-center justify-between">
-          <h2 className="font-extrabold text-lg tracking-tight">
-            Paradas de {selectedDay === 'Todos' ? 'la Semana' : selectedDay}
-          </h2>
-          <span className="bg-purple-100 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 text-xs px-3 py-1 rounded-full font-bold">
-            {sortedStops.length} Parada(s)
-          </span>
-        </div>
+      {/* Stop List Grid / Card de Registro de Rutas */}
+      <div className="glass rounded-3xl border shadow-lg overflow-hidden transition-all duration-300">
+        <button
+          type="button"
+          onClick={() => setIsStopListCollapsed(prev => !prev)}
+          className={`w-full p-5 sm:p-6 flex items-center justify-between text-left hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors cursor-pointer group select-none ${
+            !isStopListCollapsed ? 'border-b border-slate-200/50 dark:border-slate-800/50' : ''
+          }`}
+          title={isStopListCollapsed ? 'Expandir registro de rutas' : 'Colapsar registro de rutas'}
+        >
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h2 className="font-extrabold text-lg tracking-tight text-slate-900 dark:text-white">
+              Paradas de {selectedDay === 'Todos' ? 'la Semana' : selectedDay}
+            </h2>
+            <span className="bg-purple-100 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 text-xs px-3 py-1 rounded-full font-bold">
+              {sortedStops.length} Parada(s)
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 hidden sm:inline">
+              {isStopListCollapsed ? 'Toca para expandir' : 'Toca para colapsar'}
+            </span>
+            <div className={`p-1.5 rounded-xl text-slate-400 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-transform duration-300 flex-shrink-0 ${
+              isStopListCollapsed ? 'rotate-180 text-purple-600 dark:text-purple-400' : ''
+            }`}>
+              <ChevronDown className="w-5 h-5" />
+            </div>
+          </div>
+        </button>
+
+        {!isStopListCollapsed && (
+          <div className="animate-fade-in">
 
         {sortedStops.length === 0 ? (
           <div className="p-12 text-center text-slate-400 dark:text-slate-500">
@@ -1292,6 +1318,8 @@ export const StopList: React.FC<StopListProps> = ({
             })}
           </div>
         )}
+        </div>
+      )}
       </div>
 
       {/* Add / Edit Stop Modal (Supports both Bulk Multi-Select and Single Stop with Save & Add Another) */}
