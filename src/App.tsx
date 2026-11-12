@@ -391,6 +391,14 @@ function App() {
                   }}
                   pickedCoordsForStop={pickedCoordsForStop}
                   onClearPickedCoords={() => setPickedCoordsForStop(null)}
+                  onRequestClientMapPick={(draft) => {
+                    setClientDraftForPick(draft);
+                    setTimeout(() => {
+                      document.getElementById('map-section')?.scrollIntoView({ behavior: 'smooth' });
+                    }, 100);
+                  }}
+                  pickedCoordsForClient={pickedCoordsForClient}
+                  onClearPickedClientCoords={() => setPickedCoordsForClient(null)}
                 />
               </div>
               {/* Right: Map view of Stops (Filtered by Selected Day!) */}

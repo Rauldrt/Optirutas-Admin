@@ -186,6 +186,7 @@ export const addClient = async (client: Omit<Client, 'id'> & { id?: string }) =>
       email: client.email || '',
     };
     await setDoc(doc(db, CLIENTS_COLLECTION, id), data);
+    return id;
   } catch (error) {
     console.error("Error adding client: ", error);
     throw error;

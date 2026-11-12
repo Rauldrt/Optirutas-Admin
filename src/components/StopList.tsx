@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Plus, Edit2, Trash2, ArrowUp, ArrowDown, MapPin, 
   CheckSquare, Square, RefreshCw, X, Archive, Clock,
   Wand2, Share2, Download, Crosshair, Search, Sparkles, Check, Layers, PlusCircle,
-  Calendar, ChevronDown
+  Calendar, ChevronDown, UserPlus, ArrowLeft, Mail, Phone
 } from 'lucide-react';
-import { addStop, updateStop, deleteStop, addHistory, type Stop, type Client } from '../services/firestore';
+import { addStop, updateStop, deleteStop, addHistory, addClient, type Stop, type Client } from '../services/firestore';
 import { 
   calculateDistanceKm, 
   calculateRouteDistanceKm, 
@@ -43,6 +43,26 @@ interface StopListProps {
     };
   } | null;
   onClearPickedCoords?: () => void;
+  onRequestClientMapPick?: (currentDraft: {
+    editingClient: Client | null;
+    name: string;
+    address: string;
+    mapLink: string;
+    phone: string;
+    email: string;
+  }) => void;
+  pickedCoordsForClient?: {
+    coords: [number, number];
+    draft: {
+      editingClient: Client | null;
+      name: string;
+      address: string;
+      mapLink: string;
+      phone: string;
+      email: string;
+    };
+  } | null;
+  onClearPickedClientCoords?: () => void;
 }
 
 export const StopList: React.FC<StopListProps> = ({ 
@@ -53,7 +73,10 @@ export const StopList: React.FC<StopListProps> = ({
   onSelectDay,
   onRequestMapPick,
   pickedCoordsForStop,
-  onClearPickedCoords
+  onClearPickedCoords,
+  onRequestClientMapPick,
+  pickedCoordsForClient,
+  onClearPickedClientCoords
 }) => {
   const todayName = getCurrentDayNameEs();
   const [internalDay, setInternalDay] = useState<string>(todayName);
@@ -78,12 +101,26 @@ export const StopList: React.FC<StopListProps> = ({
 
   // Modal Mode: 'bulk' (Carga Masiva desde Clientes) vs 'single' (Formulario Individual)
   const [modalMode, setModalMode] = useState<'bulk' | 'single'>('bulk');
+  const [bulkSubView, setBulkSubView] = useState<'list' | 'new-client'>('list');
 
   // Bulk Mode State inside Add Stop Modal
   const [bulkSearch, setBulkSearch] = useState('');
   const [bulkSelectedClientIds, setBulkSelectedClientIds] = useState<string[]>([]);
   const [bulkOptimizeOrder, setBulkOptimizeOrder] = useState(true);
   const [isSavingBulk, setIsSavingBulk] = useState(false);
+  const bulkSearchInputRef = useRef<HTMLInputElement>(null);
+
+  // New Client Creation State (inside Bulk workflow)
+  const [newClientName, setNewClientName] = useState('');
+  const [newClientAddress, setNewClientAddress] = useState('');
+  const [newClientPhone, setNewClientPhone] = useState('');
+  const [newClientEmail, setNewClientEmail] = useState('');
+  const [newClientMapLink, setNewClientMapLink] = useState('');
+  const [newClientLat, setNewClientLat] = useState<number | null>(null);
+  const [newClientLng, setNewClientLng] = useState<number | null>(null);
+  const [isResolvingNewClient, setIsResolvingNewClient] = useState(false);
+  const [newClientResolveError, setNewClientResolveError] = useState<string | null>(null);
+  const [isSavingNewClient, setIsSavingNewClient] = useState(false);
 
   // Single Stop Form State
   const [name, setName] = useState('');
@@ -126,6 +163,69 @@ export const StopList: React.FC<StopListProps> = ({
       if (onClearPickedCoords) onClearPickedCoords();
     }
   }, [pickedCoordsForStop, onClearPickedCoords]);
+
+  // Restore modal when returning from Client Map Pick mode
+  useEffect(() => {
+    if (pickedCoordsForClient) {
+      const { coords, draft } = pickedCoordsForClient;
+      setNewClientName(draft.name);
+      setNewClientAddress(draft.address);
+      setNewClientPhone(draft.phone);
+      setNewClientEmail(draft.email);
+      setNewClientMapLink(draft.mapLink || `https://www.google.com/maps?q=${coords[0]},${coords[1]}`);
+      setNewClientLat(coords[0]);
+      setNewClientLng(coords[1]);
+      setNewClientResolveError(null);
+      setModalMode('bulk');
+      setBulkSubView('new-client');
+      setIsModalOpen(true);
+      if (onClearPickedClientCoords) onClearPickedClientCoords();
+    }
+  }, [pickedCoordsForClient, onClearPickedClientCoords]);
+
+  // Auto-resolve / extract coords when newClientMapLink changes
+  useEffect(() => {
+    if (!newClientMapLink) {
+      setNewClientLat(null);
+      setNewClientLng(null);
+      setNewClientResolveError(null);
+      return;
+    }
+
+    const instantCoords = extractCoords(newClientMapLink);
+    if (instantCoords) {
+      setNewClientLat(instantCoords.lat);
+      setNewClientLng(instantCoords.lng);
+      setNewClientResolveError(null);
+      return;
+    }
+
+    const isShort = newClientMapLink.includes('maps.app.goo.gl') || 
+                    newClientMapLink.includes('goo.gl') || 
+                    newClientMapLink.includes('bit.ly');
+
+    if (isShort && newClientMapLink.startsWith('http') && !isResolvingNewClient && newClientLat === null && !newClientResolveError) {
+      setIsResolvingNewClient(true);
+      setNewClientResolveError(null);
+      resolveMapLinkCoords(newClientMapLink)
+        .then(parsed => {
+          if (parsed) {
+            setNewClientLat(parsed.lat);
+            setNewClientLng(parsed.lng);
+          } else {
+            setNewClientResolveError('No se pudieron extraer coordenadas del enlace.');
+            setNewClientLat(null);
+            setNewClientLng(null);
+          }
+        })
+        .catch(() => {
+          setNewClientResolveError('No se pudo contactar con el servicio de resolución.');
+        })
+        .finally(() => {
+          setIsResolvingNewClient(false);
+        });
+    }
+  }, [newClientMapLink, newClientLat, isResolvingNewClient, newClientResolveError]);
 
   // Auto-extract coordinates when mapLink changes in Stop modal
   useEffect(() => {
@@ -284,10 +384,14 @@ export const StopList: React.FC<StopListProps> = ({
     resetSingleFormFields(dayStops.length + 1);
     setBulkSearch('');
     setBulkSelectedClientIds([]);
+    setBulkSubView('list');
     setSavedToastCount(0);
     // Default to bulk mode if there are clients in the directory, otherwise single mode
     setModalMode(clients.length > 0 ? 'bulk' : 'single');
     setIsModalOpen(true);
+    setTimeout(() => {
+      bulkSearchInputRef.current?.focus();
+    }, 150);
   };
 
   const openEditModal = (stop: Stop) => {
@@ -387,9 +491,104 @@ export const StopList: React.FC<StopListProps> = ({
   };
 
   const toggleBulkClient = (clientId: string) => {
+    const isAdding = !bulkSelectedClientIds.includes(clientId);
     setBulkSelectedClientIds(prev =>
       prev.includes(clientId) ? prev.filter(id => id !== clientId) : [...prev, clientId]
     );
+
+    // Requisito 1: Después de seleccionar un cliente, se activa automáticamente el input de búsqueda para un nuevo cliente
+    if (isAdding) {
+      setBulkSearch('');
+      setTimeout(() => {
+        bulkSearchInputRef.current?.focus();
+      }, 50);
+    }
+  };
+
+  const handleBulkSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (bulkFilteredClients.length === 1) {
+        toggleBulkClient(bulkFilteredClients[0].id);
+      }
+    }
+  };
+
+  const openNewClientFormFromBulk = (initialName: string = '') => {
+    setNewClientName(initialName);
+    setNewClientAddress('');
+    setNewClientPhone('');
+    setNewClientEmail('');
+    setNewClientMapLink('');
+    setNewClientLat(null);
+    setNewClientLng(null);
+    setNewClientResolveError(null);
+    setBulkSubView('new-client');
+  };
+
+  const handlePickClientOnMap = () => {
+    if (!onRequestClientMapPick) {
+      alert('La selección en el mapa no está disponible');
+      return;
+    }
+    // Cerrar temporalmente el modal para permitir elegir la ubicación en el mapa
+    setIsModalOpen(false);
+    onRequestClientMapPick({
+      editingClient: null,
+      name: newClientName,
+      address: newClientAddress,
+      mapLink: newClientMapLink,
+      phone: newClientPhone,
+      email: newClientEmail,
+    });
+  };
+
+  const handleSaveNewClient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newClientName.trim()) {
+      alert('Por favor ingresa el nombre o razón social del cliente');
+      return;
+    }
+
+    if (!newClientMapLink && newClientLat === null) {
+      alert('Por favor ingresa un enlace de Google Maps o señala la ubicación en el mapa');
+      return;
+    }
+
+    setIsSavingNewClient(true);
+    try {
+      const finalLat = newClientLat !== null ? newClientLat : 0;
+      const finalLng = newClientLng !== null ? newClientLng : 0;
+      const finalMapLink = newClientMapLink || `https://www.google.com/maps?q=${finalLat},${finalLng}`;
+
+      const createdId = await addClient({
+        name: newClientName.trim(),
+        address: newClientAddress.trim() || 'Sin dirección',
+        latitude: finalLat,
+        longitude: finalLng,
+        mapLink: finalMapLink,
+        phone: newClientPhone.trim(),
+        email: newClientEmail.trim(),
+      });
+
+      // Sumar de inmediato el nuevo cliente a los seleccionados para la ruta
+      if (createdId) {
+        setBulkSelectedClientIds(prev => prev.includes(createdId) ? prev : [...prev, createdId]);
+      }
+
+      // Regresar a la lista de selección masiva y activar el buscador
+      setBulkSubView('list');
+      setBulkSearch('');
+      setIsSavingNewClient(false);
+
+      setTimeout(() => {
+        bulkSearchInputRef.current?.focus();
+      }, 100);
+    } catch (err) {
+      console.error(err);
+      alert('Error al registrar el nuevo cliente');
+      setIsSavingNewClient(false);
+    }
   };
 
   const handleSelectAllFilteredBulk = () => {
@@ -1103,7 +1302,11 @@ export const StopList: React.FC<StopListProps> = ({
             <div className="p-5 border-b border-slate-200/50 dark:border-slate-800/50 space-y-3 flex-shrink-0">
               <div className="flex items-center justify-between">
                 <h3 className="font-extrabold text-lg text-slate-900 dark:text-white">
-                  {editingStop ? 'Editar Parada' : 'Añadir Paradas a la Ruta'}
+                  {editingStop 
+                    ? 'Editar Parada' 
+                    : (!editingStop && modalMode === 'bulk' && bulkSubView === 'new-client')
+                      ? 'Alta de Nuevo Cliente'
+                      : 'Añadir Paradas a la Ruta'}
                 </h3>
                 <button 
                   onClick={() => setIsModalOpen(false)}
@@ -1113,8 +1316,8 @@ export const StopList: React.FC<StopListProps> = ({
                 </button>
               </div>
 
-              {/* Mode Switcher Tabs (Only when creating new stops) */}
-              {!editingStop && (
+              {/* Mode Switcher Tabs (Only when creating new stops and not in new-client subview) */}
+              {!editingStop && bulkSubView !== 'new-client' && (
                 <div className="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800/90 p-1 rounded-2xl">
                   <button
                     type="button"
@@ -1146,87 +1349,279 @@ export const StopList: React.FC<StopListProps> = ({
 
             {/* BULK SELECTION MODE */}
             {!editingStop && modalMode === 'bulk' ? (
-              <form onSubmit={handleSaveBulkStops} className="flex-1 flex flex-col overflow-hidden">
-                <div className="p-5 space-y-4 overflow-y-auto flex-1">
-                  {/* Target Day & Optimization Toggle */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              bulkSubView === 'new-client' ? (
+                /* FORMULARIO DE ALTA DE NUEVO CLIENTE (Permite señalarlo en el mapa) */
+                <form onSubmit={handleSaveNewClient} className="flex-1 flex flex-col overflow-hidden">
+                  <div className="p-5 space-y-4 overflow-y-auto flex-1">
+                    {/* Header back button inside form */}
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setBulkSubView('list')}
+                        className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
+                      >
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                        <span>Volver a la selección masiva</span>
+                      </button>
+                      <span className="text-[11px] font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/50 px-2.5 py-0.5 rounded-full border border-purple-200/50 dark:border-purple-800/50">
+                        Nuevo Cliente
+                      </span>
+                    </div>
+
+                    {/* Nombre */}
                     <div>
                       <label className="block text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">
-                        Día de Entrega
+                        Nombre Completo / Razón Social *
                       </label>
-                      <select
-                        value={deliveryDay}
-                        onChange={(e) => setDeliveryDay(e.target.value)}
-                        className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-3.5 py-2.5 text-xs font-bold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
-                      >
-                        {daysOfWeek.filter(d => d !== 'Todos').map(day => (
-                          <option key={day} value={day}>
-                            {day} {day.toLowerCase() === todayName.toLowerCase() ? '(Hoy)' : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="flex items-end">
-                      <label className="w-full flex items-center gap-2 bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200/60 dark:border-indigo-800/50 rounded-2xl px-3.5 py-2.5 cursor-pointer text-xs font-bold text-indigo-900 dark:text-indigo-200">
-                        <input
-                          type="checkbox"
-                          checked={bulkOptimizeOrder}
-                          onChange={(e) => setBulkOptimizeOrder(e.target.checked)}
-                          className="rounded text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <Wand2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 flex-shrink-0" />
-                        <span className="truncate">Ordenar por ubicación</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* Smart Search Bar for Clients */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                        Selecciona los clientes a incluir ({bulkFilteredClients.length})
-                      </label>
-                      {bulkFilteredClients.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={handleSelectAllFilteredBulk}
-                          className="text-[11px] font-extrabold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
-                        >
-                          {bulkFilteredClients.every(c => bulkSelectedClientIds.includes(c.id))
-                            ? 'Desmarcar filtrados'
-                            : 'Marcar todos los filtrados'}
-                        </button>
-                      )}
-                    </div>
-                    <div className="relative">
-                      <Search className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
                       <input
                         type="text"
-                        placeholder="Buscar por nombre, calle, teléfono o palabras sueltas..."
-                        value={bulkSearch}
-                        onChange={(e) => setBulkSearch(e.target.value)}
-                        className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl pl-10 pr-8 py-2.5 text-xs font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                        placeholder="Ej. Distribuidora del Norte, Juan Pérez..."
+                        value={newClientName}
+                        onChange={(e) => setNewClientName(e.target.value)}
+                        className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-3.5 py-2.5 text-xs font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                        required
+                        autoFocus
                       />
-                      {bulkSearch && (
-                        <button
-                          type="button"
-                          onClick={() => setBulkSearch('')}
-                          className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 cursor-pointer"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
+                    </div>
+
+                    {/* Dirección */}
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">
+                        Dirección Comercial (Opcional)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Av. del Libertador 4567, Piso 2"
+                        value={newClientAddress}
+                        onChange={(e) => setNewClientAddress(e.target.value)}
+                        className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-3.5 py-2.5 text-xs font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                      />
+                    </div>
+
+                    {/* Teléfono & Email */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">
+                          Teléfono (Opcional)
+                        </label>
+                        <div className="relative">
+                          <Phone className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400" />
+                          <input
+                            type="text"
+                            placeholder="+54 11 1234 5678"
+                            value={newClientPhone}
+                            onChange={(e) => setNewClientPhone(e.target.value)}
+                            className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl pl-9 pr-3 py-2.5 text-xs font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">
+                          Email (Opcional)
+                        </label>
+                        <div className="relative">
+                          <Mail className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400" />
+                          <input
+                            type="email"
+                            placeholder="cliente@ejemplo.com"
+                            value={newClientEmail}
+                            onChange={(e) => setNewClientEmail(e.target.value)}
+                            className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl pl-9 pr-3 py-2.5 text-xs font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Ubicación: Google Maps o Señalar en el Mapa */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                          Ubicación Geográfica *
+                        </label>
+                        {onRequestClientMapPick && (
+                          <button
+                            type="button"
+                            onClick={handlePickClientOnMap}
+                            className="inline-flex items-center gap-1.5 text-xs font-extrabold text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 cursor-pointer bg-purple-50 dark:bg-purple-950/70 px-2.5 py-1 rounded-xl border border-purple-200/60 dark:border-purple-800/60 transition-all hover:scale-105 active:scale-95 shadow-sm"
+                            title="Hacer clic en el mapa para marcar el punto exacto"
+                          >
+                            <Crosshair className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                            <span>Señalar en el mapa</span>
+                          </button>
+                        )}
+                      </div>
+                      <div className="relative">
+                        <input
+                          type="url"
+                          placeholder="https://maps.google.com/... o presiona 'Señalar en el mapa'"
+                          value={newClientMapLink}
+                          onChange={(e) => {
+                            setNewClientMapLink(e.target.value);
+                            setNewClientLat(null);
+                            setNewClientLng(null);
+                            setNewClientResolveError(null);
+                          }}
+                          className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-3.5 py-2.5 text-xs font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100 pr-9"
+                        />
+                        {isResolvingNewClient && (
+                          <div className="absolute right-3 top-2.5">
+                            <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-purple-500 border-t-transparent"></div>
+                          </div>
+                        )}
+                      </div>
+
+                      {newClientLat !== null && newClientLng !== null && (
+                        <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold mt-1.5 flex items-center gap-1">
+                          <span>📍 Coordenadas fijadas: {newClientLat.toFixed(5)}, {newClientLng.toFixed(5)}</span>
+                        </p>
+                      )}
+
+                      {newClientResolveError && (
+                        <p className="text-[11px] text-rose-500 font-semibold mt-1.5">
+                          ⚠️ {newClientResolveError} (Puedes usar "Señalar en el mapa")
+                        </p>
                       )}
                     </div>
                   </div>
 
-                  {/* Multi-select Client List */}
-                  <div className="border border-slate-200 dark:border-slate-800 rounded-2xl max-h-56 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/80 bg-white/50 dark:bg-slate-900/50">
-                    {bulkFilteredClients.length === 0 ? (
-                      <div className="p-6 text-center text-xs text-slate-400">
-                        No se encontraron clientes en el directorio.
+                  {/* Fixed Footer for New Client */}
+                  <div className="p-4 border-t border-slate-200/50 dark:border-slate-800/50 flex items-center justify-between gap-2 bg-white/50 dark:bg-slate-900/50 flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setBulkSubView('list')}
+                      className="px-4 py-2.5 rounded-2xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                    >
+                      Volver
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSavingNewClient || !newClientName.trim() || (!newClientMapLink && newClientLat === null)}
+                      className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-5 py-2.5 rounded-2xl text-xs font-extrabold hover:opacity-95 shadow-lg shadow-purple-500/25 transition-all disabled:opacity-40 cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>{isSavingNewClient ? 'Guardando...' : 'Guardar y Seleccionar'}</span>
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                /* VISTA LISTA DE SELECCIÓN MASIVA */
+                <form onSubmit={handleSaveBulkStops} className="flex-1 flex flex-col overflow-hidden">
+                  <div className="p-5 space-y-4 overflow-y-auto flex-1">
+                    {/* Target Day & Optimization Toggle */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">
+                          Día de Entrega
+                        </label>
+                        <select
+                          value={deliveryDay}
+                          onChange={(e) => setDeliveryDay(e.target.value)}
+                          className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-3.5 py-2.5 text-xs font-bold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                        >
+                          {daysOfWeek.filter(d => d !== 'Todos').map(day => (
+                            <option key={day} value={day}>
+                              {day} {day.toLowerCase() === todayName.toLowerCase() ? '(Hoy)' : ''}
+                            </option>
+                          ))}
+                        </select>
                       </div>
-                    ) : (
+
+                      <div className="flex items-end">
+                        <label className="w-full flex items-center gap-2 bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200/60 dark:border-indigo-800/50 rounded-2xl px-3.5 py-2.5 cursor-pointer text-xs font-bold text-indigo-900 dark:text-indigo-200">
+                          <input
+                            type="checkbox"
+                            checked={bulkOptimizeOrder}
+                            onChange={(e) => setBulkOptimizeOrder(e.target.checked)}
+                            className="rounded text-indigo-600 focus:ring-indigo-500"
+                          />
+                          <Wand2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 flex-shrink-0" />
+                          <span className="truncate">Ordenar por ubicación</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Smart Search Bar for Clients */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                          Selecciona los clientes ({bulkFilteredClients.length})
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openNewClientFormFromBulk(bulkSearch.trim())}
+                            className="text-[11px] font-extrabold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer inline-flex items-center gap-1"
+                            title="Dar de alta un nuevo cliente y sumarlo a la ruta"
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>Nuevo Cliente</span>
+                          </button>
+                          {bulkFilteredClients.length > 0 && (
+                            <>
+                              <span className="text-slate-300 dark:text-slate-700">•</span>
+                              <button
+                                type="button"
+                                onClick={handleSelectAllFilteredBulk}
+                                className="text-[11px] font-extrabold text-slate-600 dark:text-slate-300 hover:underline cursor-pointer"
+                              >
+                                {bulkFilteredClients.every(c => bulkSelectedClientIds.includes(c.id))
+                                  ? 'Desmarcar todos'
+                                  : 'Marcar todos'}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <div className="relative">
+                        <Search className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
+                        <input
+                          ref={bulkSearchInputRef}
+                          type="text"
+                          placeholder="Buscar por nombre, calle, teléfono o palabras sueltas..."
+                          value={bulkSearch}
+                          onChange={(e) => setBulkSearch(e.target.value)}
+                          onKeyDown={handleBulkSearchKeyDown}
+                          className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl pl-10 pr-8 py-2.5 text-xs font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                        />
+                        {bulkSearch && (
+                          <button
+                            type="button"
+                            onClick={() => setBulkSearch('')}
+                            className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 cursor-pointer"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Multi-select Client List */}
+                    <div className="border border-slate-200 dark:border-slate-800 rounded-2xl max-h-56 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/80 bg-white/50 dark:bg-slate-900/50">
+                      {bulkFilteredClients.length === 0 ? (
+                        <div className="p-6 text-center space-y-3">
+                          <div className="w-10 h-10 rounded-full bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400 flex items-center justify-center mx-auto">
+                            <UserPlus className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <p className="text-xs font-extrabold text-slate-700 dark:text-slate-200">
+                              {bulkSearch.trim()
+                                ? `No se encontró ningún cliente para "${bulkSearch}"`
+                                : 'No hay clientes registrados en el directorio'}
+                            </p>
+                            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                              ¿El cliente no existe? Puedes registrarlo ahora mismo con ubicación en el mapa.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => openNewClientFormFromBulk(bulkSearch.trim())}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-extrabold bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:opacity-95 shadow-md shadow-purple-500/25 transition-all cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Registrar Nuevo Cliente</span>
+                          </button>
+                        </div>
+                      ) : (
                       bulkFilteredClients.map(client => {
                         const selIndex = bulkPreviewStops.findIndex(s => s.id === client.id);
                         const isSelected = bulkSelectedClientIds.includes(client.id);
@@ -1322,6 +1717,7 @@ export const StopList: React.FC<StopListProps> = ({
                   </button>
                 </div>
               </form>
+              )
             ) : (
               /* SINGLE / MANUAL STOP MODE */
               <form onSubmit={handleSubmit} className="flex-1 flex flex-col overflow-hidden">
