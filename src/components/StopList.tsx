@@ -909,18 +909,18 @@ export const StopList: React.FC<StopListProps> = ({
                 </div>
               </div>
 
-              <div className={`p-1 rounded-lg text-slate-400 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-transform duration-300 flex-shrink-0 ${
+              <div className={`p-1 rounded-lg text-slate-400 group-hover:text-purple-600 dark:group-hover:text-purple-400 m3-icon-physics flex-shrink-0 ${
                 isDayAccordionOpen ? 'rotate-180 text-purple-600 dark:text-purple-400' : ''
               }`}>
                 <ChevronDown className="w-4 h-4" />
               </div>
             </button>
 
-            {/* Botón tipo píldora "Añadir" alojado en el encabezado */}
+            {/* Botón tipo píldora "Añadir" alojado en el encabezado con física M3 */}
             <button
               type="button"
               onClick={openAddModal}
-              className="flex items-center gap-1 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white px-3.5 py-1.5 rounded-full text-xs font-black shadow-md shadow-purple-500/25 transition-all hover:scale-105 active:scale-95 cursor-pointer flex-shrink-0"
+              className="flex items-center gap-1 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white px-3.5 py-1.5 rounded-full text-xs font-black shadow-md shadow-purple-500/25 cursor-pointer flex-shrink-0 m3-surface-interactive"
               title="Añadir nuevas paradas a la ruta"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -928,75 +928,77 @@ export const StopList: React.FC<StopListProps> = ({
             </button>
           </div>
 
-          {/* Contenido Colapsable con el resto de los días */}
-          {isDayAccordionOpen && (
-            <div className="p-3 border-t border-slate-200/60 dark:border-slate-800/60 bg-white/60 dark:bg-slate-900/60 space-y-2 animate-fade-in">
-              <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 dark:text-slate-500 px-0.5">
-                <span>Seleccionar día de ruta:</span>
-                {selectedDay.toLowerCase() !== todayName.toLowerCase() && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedDay(todayName);
-                      setIsDayAccordionOpen(false);
-                    }}
-                    className="text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
-                  >
-                    Volver a Hoy ({todayName})
-                  </button>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                {daysOfWeek.map(day => {
-                  const countForDay = day === 'Todos' 
-                    ? stops.length 
-                    : stops.filter(s => s.deliveryDay.toLowerCase() === day.toLowerCase()).length;
-                  const isToday = day.toLowerCase() === todayName.toLowerCase();
-                  const isSelected = selectedDay.toLowerCase() === day.toLowerCase();
-
-                  return (
+          {/* Contenido Colapsable con el resto de los días (Física M3 Container Transform) */}
+          <div className={`m3-accordion-wrapper ${isDayAccordionOpen ? 'open' : ''}`}>
+            <div className="m3-accordion-inner">
+              <div className="p-3 border-t border-slate-200/60 dark:border-slate-800/60 bg-white/60 dark:bg-slate-900/60 space-y-2">
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 dark:text-slate-500 px-0.5">
+                  <span>Seleccionar día de ruta:</span>
+                  {selectedDay.toLowerCase() !== todayName.toLowerCase() && (
                     <button
-                      key={day}
                       type="button"
                       onClick={() => {
-                        setSelectedDay(day);
+                        setSelectedDay(todayName);
                         setIsDayAccordionOpen(false);
                       }}
-                      className={`px-2.5 py-2 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-between gap-1.5 cursor-pointer ${
-                        isSelected
-                          ? 'bg-purple-600 text-white shadow-md shadow-purple-500/25 ring-2 ring-purple-400/40'
-                          : 'bg-slate-100/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700/80'
-                      }`}
+                      className="text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
                     >
-                      <div className="flex items-center gap-1 truncate">
-                        <span className="truncate">{day}</span>
-                        {isToday && (
-                          <span className={`text-[8px] uppercase tracking-wider px-1 py-0.2 rounded-full font-black ${
-                            isSelected
-                              ? 'bg-amber-400 text-slate-950'
-                              : 'bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300'
+                      Volver a Hoy ({todayName})
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  {daysOfWeek.map(day => {
+                    const countForDay = day === 'Todos' 
+                      ? stops.length 
+                      : stops.filter(s => s.deliveryDay.toLowerCase() === day.toLowerCase()).length;
+                    const isToday = day.toLowerCase() === todayName.toLowerCase();
+                    const isSelected = selectedDay.toLowerCase() === day.toLowerCase();
+
+                    return (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() => {
+                          setSelectedDay(day);
+                          setIsDayAccordionOpen(false);
+                        }}
+                        className={`px-2.5 py-2 rounded-xl text-xs font-bold flex items-center justify-between gap-1.5 cursor-pointer m3-chip-interactive ${
+                          isSelected
+                            ? 'bg-purple-600 text-white shadow-md shadow-purple-500/25 ring-2 ring-purple-400/40'
+                            : 'bg-slate-100/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700/80'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1 truncate">
+                          <span className="truncate">{day}</span>
+                          {isToday && (
+                            <span className={`text-[8px] uppercase tracking-wider px-1 py-0.2 rounded-full font-black ${
+                              isSelected
+                                ? 'bg-amber-400 text-slate-950'
+                                : 'bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300'
+                            }`}>
+                              Hoy
+                            </span>
+                          )}
+                        </div>
+
+                        {countForDay > 0 && (
+                          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold flex-shrink-0 ${
+                            isSelected 
+                              ? 'bg-white/20 text-white' 
+                              : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
                           }`}>
-                            Hoy
+                            {countForDay}
                           </span>
                         )}
-                      </div>
-
-                      {countForDay > 0 && (
-                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold flex-shrink-0 ${
-                          isSelected 
-                            ? 'bg-white/20 text-white' 
-                            : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-                        }`}>
-                          {countForDay}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
-          )}
+          </div>
         </div>
 
         {/* Route Optimization Tools (when 2+ stops) */}
@@ -1006,7 +1008,7 @@ export const StopList: React.FC<StopListProps> = ({
               <button
                 onClick={() => handleApplyOptimizedOrder()}
                 disabled={isOptimizing}
-                className="flex-1 min-w-[140px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-2xl text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors cursor-pointer"
+                className="flex-1 min-w-[140px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-2xl text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors cursor-pointer m3-surface-interactive"
                 title="Ordenar paradas automáticamente según sus coordenadas geográficas"
               >
                 <Wand2 className="w-3.5 h-3.5" />
@@ -1015,7 +1017,7 @@ export const StopList: React.FC<StopListProps> = ({
             )}
             <button
               onClick={handleOptimizeIndices}
-              className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-2xl text-[11px] font-bold border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-2xl text-[11px] font-bold border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer m3-surface-interactive"
               title="Re-enumerar índices del 1 al N secuencialmente"
             >
               <RefreshCw className="w-3.5 h-3.5" />
@@ -1024,12 +1026,12 @@ export const StopList: React.FC<StopListProps> = ({
           </div>
         )}
 
-        {/* Primary Action Toolbar: Archivar, WhatsApp, CSV in a single line */}
+        {/* Primary Action Toolbar: Archivar, WhatsApp, CSV in a single line with M3 surface physics */}
         <div className="grid grid-cols-3 gap-2">
           <button
             onClick={openArchiveModal}
             disabled={completedStops.length === 0}
-            className={`flex items-center justify-center gap-1.5 px-2 py-2 rounded-2xl text-[11px] font-bold transition-all ${
+            className={`flex items-center justify-center gap-1.5 px-2 py-2 rounded-2xl text-[11px] font-bold m3-surface-interactive ${
               completedStops.length > 0
                 ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:opacity-95 shadow-md shadow-emerald-500/20 cursor-pointer'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed border border-slate-200/50 dark:border-slate-800/50'
@@ -1047,7 +1049,7 @@ export const StopList: React.FC<StopListProps> = ({
           <button
             onClick={handleShareWhatsApp}
             disabled={dayStops.length === 0}
-            className={`flex items-center justify-center gap-1.5 px-2 py-2 rounded-2xl text-[11px] font-bold transition-colors ${
+            className={`flex items-center justify-center gap-1.5 px-2 py-2 rounded-2xl text-[11px] font-bold m3-surface-interactive ${
               dayStops.length > 0
                 ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 cursor-pointer'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed border border-slate-200/50 dark:border-slate-800/50'
@@ -1061,7 +1063,7 @@ export const StopList: React.FC<StopListProps> = ({
           <button
             onClick={handleExportCSV}
             disabled={dayStops.length === 0}
-            className={`flex items-center justify-center gap-1.5 px-2 py-2 rounded-2xl text-[11px] font-bold transition-colors ${
+            className={`flex items-center justify-center gap-1.5 px-2 py-2 rounded-2xl text-[11px] font-bold m3-surface-interactive ${
               dayStops.length > 0
                 ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200/60 dark:border-slate-700/60 cursor-pointer'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed border border-slate-200/50 dark:border-slate-800/50'
@@ -1182,7 +1184,7 @@ export const StopList: React.FC<StopListProps> = ({
             <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 hidden sm:inline">
               {isStopListCollapsed ? 'Toca para expandir' : 'Toca para colapsar'}
             </span>
-            <div className={`p-1.5 rounded-xl text-slate-400 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-transform duration-300 flex-shrink-0 ${
+            <div className={`p-1.5 rounded-xl text-slate-400 group-hover:text-purple-600 dark:group-hover:text-purple-400 m3-icon-physics flex-shrink-0 ${
               isStopListCollapsed ? 'rotate-180 text-purple-600 dark:text-purple-400' : ''
             }`}>
               <ChevronDown className="w-5 h-5" />
@@ -1190,10 +1192,10 @@ export const StopList: React.FC<StopListProps> = ({
           </div>
         </button>
 
-        {!isStopListCollapsed && (
-          <div className="animate-fade-in">
-
-        {sortedStops.length === 0 ? (
+        {/* Contenedor Colapsable con Física M3 Container Transform */}
+        <div className={`m3-accordion-wrapper ${!isStopListCollapsed ? 'open' : ''}`}>
+          <div className="m3-accordion-inner">
+            {sortedStops.length === 0 ? (
           <div className="p-12 text-center text-slate-400 dark:text-slate-500">
             <MapPin className="w-12 h-12 mx-auto mb-4 opacity-40 text-purple-500" />
             <p className="font-semibold">
@@ -1318,14 +1320,14 @@ export const StopList: React.FC<StopListProps> = ({
             })}
           </div>
         )}
+          </div>
         </div>
-      )}
       </div>
 
       {/* Add / Edit Stop Modal (Supports both Bulk Multi-Select and Single Stop with Save & Add Another) */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fade-in">
-          <div className="glass rounded-3xl border shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden animate-slide-up">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm m3-scrim-enter">
+          <div className="glass rounded-3xl border shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden m3-dialog-enter">
             {/* Fixed Modal Header */}
             <div className="p-5 border-b border-slate-200/50 dark:border-slate-800/50 space-y-3 flex-shrink-0">
               <div className="flex items-center justify-between">
@@ -1994,8 +1996,8 @@ export const StopList: React.FC<StopListProps> = ({
 
       {/* Archive Route Modal */}
       {isArchiveModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fade-in">
-          <div className="glass rounded-3xl border shadow-2xl w-full max-w-lg overflow-hidden animate-slide-up">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm m3-scrim-enter">
+          <div className="glass rounded-3xl border shadow-2xl w-full max-w-lg overflow-hidden m3-dialog-enter">
             <div className="p-6 border-b border-slate-200/50 dark:border-slate-800/50 flex items-center justify-between">
               <h3 className="font-extrabold text-lg text-slate-900 dark:text-white flex items-center gap-2">
                 <Archive className="w-5 h-5 text-emerald-500" />

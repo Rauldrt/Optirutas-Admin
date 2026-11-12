@@ -523,10 +523,10 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
         )}
       </div>
 
-      {/* Batch Send to Route Modal */}
+      {/* Batch Send to Route Modal with M3 Physics */}
       {isBatchModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fade-in">
-          <div className="glass rounded-3xl border shadow-2xl w-full max-w-md overflow-hidden animate-slide-up">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm m3-scrim-enter">
+          <div className="glass rounded-3xl border shadow-2xl w-full max-w-md overflow-hidden m3-dialog-enter">
             <div className="p-6 border-b border-slate-200/50 dark:border-slate-800/50 flex items-center justify-between">
               <h3 className="font-extrabold text-lg text-slate-900 dark:text-white flex items-center gap-2">
                 <Send className="w-5 h-5 text-emerald-500" />
@@ -612,10 +612,10 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
         </div>
       )}
 
-      {/* Add / Edit Client Modal */}
+      {/* Add / Edit Client Modal with M3 Physics */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fade-in">
-          <div className="glass rounded-3xl border shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto animate-slide-up">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm m3-scrim-enter">
+          <div className="glass rounded-3xl border shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto m3-dialog-enter">
             <div className="p-6 border-b border-slate-200/50 dark:border-slate-800/50 flex items-center justify-between">
               <h3 className="font-extrabold text-lg text-slate-900 dark:text-white">
                 {editingClient ? 'Editar Cliente' : 'Registrar Nuevo Cliente'}

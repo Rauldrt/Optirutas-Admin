@@ -64,13 +64,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   setCurrentTab(item.id);
                   setSidebarOpen(false);
                 }}
-                className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl text-sm font-semibold transition-all duration-300 ${
+                className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl text-sm font-semibold m3-surface-interactive cursor-pointer ${
                   isActive 
                     ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-500/25 scale-[1.02]' 
                     : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 hover:bg-slate-100/50 dark:hover:bg-slate-800/40'
                 }`}
               >
-                <Icon className={`w-5 h-5 transition-transform duration-300 ${isActive ? 'scale-110' : ''}`} />
+                <Icon className={`w-5 h-5 m3-icon-physics ${isActive ? 'scale-110' : ''}`} />
                 {item.name}
               </button>
             );
@@ -82,7 +82,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="border-t border-slate-200/50 dark:border-slate-800/50 pt-4">
         <button
           onClick={() => setDarkMode(!darkMode)}
-          className="w-full flex items-center justify-between px-4 py-3 rounded-2xl text-sm font-semibold text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 hover:bg-slate-100/50 dark:hover:bg-slate-800/40 transition-all duration-300"
+          className="w-full flex items-center justify-between px-4 py-3 rounded-2xl text-sm font-semibold text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 hover:bg-slate-100/50 dark:hover:bg-slate-800/40 m3-surface-interactive cursor-pointer"
         >
           <span className="flex items-center gap-4">
             {darkMode ? (
