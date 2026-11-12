@@ -647,54 +647,64 @@ export const StopList: React.FC<StopListProps> = ({
       <div className="flex flex-col gap-4 glass p-5 rounded-3xl border shadow-lg">
         {/* Subcard Colapsable de Selección de Día */}
         <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-slate-100/50 dark:bg-slate-900/40 overflow-hidden transition-all duration-300">
-          {/* Encabezado del Subcard: Muestra el día seleccionado (por defecto el día en curso) */}
-          <button
-            type="button"
-            onClick={() => setIsDayAccordionOpen(prev => !prev)}
-            className="w-full p-3 flex items-center justify-between gap-3 text-left hover:bg-slate-200/40 dark:hover:bg-slate-800/40 transition-colors cursor-pointer group"
-          >
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className={`p-2 rounded-xl transition-colors ${
-                selectedDay.toLowerCase() === todayName.toLowerCase()
-                  ? 'bg-purple-600 text-white shadow-md shadow-purple-500/20'
-                  : 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20'
-              }`}>
-                <Calendar className="w-4 h-4" />
-              </div>
-
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="font-black text-sm text-slate-900 dark:text-white">
-                    {selectedDay === 'Todos' ? 'Todos los días' : selectedDay}
-                  </span>
-                  {selectedDay.toLowerCase() === todayName.toLowerCase() && (
-                    <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded-full font-black bg-amber-400 text-slate-950 shadow-sm">
-                      HOY
-                    </span>
-                  )}
-                  <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
-                    {dayStops.length} Parada(s)
-                  </span>
+          {/* Encabezado del Subcard: Día seleccionado + Botón Píldora "Añadir" en el ancho sobrante */}
+          <div className="w-full p-2.5 sm:p-3 flex items-center justify-between gap-2">
+            {/* Botón interactivo para colapsar/expandir los días */}
+            <button
+              type="button"
+              onClick={() => setIsDayAccordionOpen(prev => !prev)}
+              className="flex-1 flex items-center justify-between gap-2 text-left hover:bg-slate-200/40 dark:hover:bg-slate-800/40 p-1 -m-1 rounded-xl transition-colors cursor-pointer group min-w-0"
+              title={isDayAccordionOpen ? 'Ocultar selector de días' : 'Toca para cambiar de día'}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className={`p-2 rounded-xl transition-colors flex-shrink-0 ${
+                  selectedDay.toLowerCase() === todayName.toLowerCase()
+                    ? 'bg-purple-600 text-white shadow-md shadow-purple-500/20'
+                    : 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20'
+                }`}>
+                  <Calendar className="w-4 h-4" />
                 </div>
-                <p className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold mt-0.5">
-                  {selectedDay.toLowerCase() === todayName.toLowerCase()
-                    ? 'Día en curso • Toca para ver otros días'
-                    : 'Día seleccionado • Toca para cambiar de día'}
-                </p>
-              </div>
-            </div>
 
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              <span className="text-[11px] font-bold text-purple-600 dark:text-purple-400 hidden sm:inline">
-                {isDayAccordionOpen ? 'Cerrar' : 'Cambiar día'}
-              </span>
-              <div className={`p-1 rounded-lg text-slate-400 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-transform duration-300 ${
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-black text-sm text-slate-900 dark:text-white truncate">
+                      {selectedDay === 'Todos' ? 'Todos' : selectedDay}
+                    </span>
+                    {selectedDay.toLowerCase() === todayName.toLowerCase() && (
+                      <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded-full font-black bg-amber-400 text-slate-950 shadow-sm flex-shrink-0">
+                        HOY
+                      </span>
+                    )}
+                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 flex-shrink-0">
+                      {dayStops.length} Parada(s)
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold mt-0.5 truncate">
+                    {selectedDay.toLowerCase() === todayName.toLowerCase()
+                      ? 'Día en curso • Toca para ver otros'
+                      : 'Día seleccionado • Toca para cambiar'}
+                  </p>
+                </div>
+              </div>
+
+              <div className={`p-1 rounded-lg text-slate-400 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-transform duration-300 flex-shrink-0 ${
                 isDayAccordionOpen ? 'rotate-180 text-purple-600 dark:text-purple-400' : ''
               }`}>
                 <ChevronDown className="w-4 h-4" />
               </div>
-            </div>
-          </button>
+            </button>
+
+            {/* Botón tipo píldora "Añadir" alojado en el encabezado */}
+            <button
+              type="button"
+              onClick={openAddModal}
+              className="flex items-center gap-1 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white px-3.5 py-1.5 rounded-full text-xs font-black shadow-md shadow-purple-500/25 transition-all hover:scale-105 active:scale-95 cursor-pointer flex-shrink-0"
+              title="Añadir nuevas paradas a la ruta"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Añadir</span>
+            </button>
+          </div>
 
           {/* Contenido Colapsable con el resto de los días */}
           {isDayAccordionOpen && (
@@ -826,13 +836,6 @@ export const StopList: React.FC<StopListProps> = ({
           >
             <Archive className="w-3.5 h-3.5" />
             <span>Archivar ({completedStops.length})</span>
-          </button>
-          <button
-            onClick={openAddModal}
-            className="flex-1 min-w-[120px] flex items-center justify-center gap-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-3 py-2 rounded-2xl text-[11px] font-bold hover:opacity-95 shadow-lg shadow-purple-500/25 transition-all cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Añadir Paradas</span>
           </button>
         </div>
 
