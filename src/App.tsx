@@ -13,16 +13,16 @@ import {
   type Client, 
   type RouteHistory,
   addClient,
-  addStop
+  addStop,
+  updateStop
 } from './services/firestore';
-import { Database, PlusCircle, CheckCircle2, MapPin, Menu } from 'lucide-react';
+import { Database, PlusCircle, CheckCircle2, MapPin, Menu, Clock } from 'lucide-react';
 
 function App() {
   const [currentTab, setCurrentTab] = useState('dashboard');
   const [darkMode, setDarkMode] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  
-
+  const [selectedDay, setSelectedDay] = useState<string>('Todos');
   
   // Real-time Firestore State
   const [stops, setStops] = useState<Stop[]>([]);
@@ -31,6 +31,37 @@ function App() {
   
   // Selected Coordinates to focus map
   const [selectedCoords, setSelectedCoords] = useState<[number, number] | undefined>(undefined);
+
+  // Interactive Map Picking State (for StopList & ClientDirectory modals)
+  const [stopDraftForPick, setStopDraftForPick] = useState<{
+    editingStop: Stop | null;
+    name: string;
+    address: string;
+    mapLink: string;
+    orderIndex: string;
+    deliveryDay: string;
+  } | null>(null);
+  const [pickedCoordsForStop, setPickedCoordsForStop] = useState<{
+    coords: [number, number];
+    draft: NonNullable<typeof stopDraftForPick>;
+  } | null>(null);
+
+  const [clientDraftForPick, setClientDraftForPick] = useState<{
+    editingClient: Client | null;
+    name: string;
+    address: string;
+    mapLink: string;
+    phone: string;
+    email: string;
+  } | null>(null);
+  const [pickedCoordsForClient, setPickedCoordsForClient] = useState<{
+    coords: [number, number];
+    draft: NonNullable<typeof clientDraftForPick>;
+  } | null>(null);
+
+  const [lastPickedPin, setLastPickedPin] = useState<[number, number] | null>(null);
+
+  const isPickingLocation = stopDraftForPick !== null || clientDraftForPick !== null;
 
   // Synchronize darkMode class on documentElement
   useEffect(() => {
@@ -54,8 +85,6 @@ function App() {
     };
   }, []);
 
-
-
   const handleSelectLocation = (coords: [number, number]) => {
     setSelectedCoords(coords);
     
@@ -69,6 +98,53 @@ function App() {
 
     // Reset selected coords after a brief moment so clicking the same item triggers effect again
     setTimeout(() => setSelectedCoords(undefined), 1000);
+  };
+
+  const handleMapPick = (coords: [number, number]) => {
+    setLastPickedPin(coords);
+    if (stopDraftForPick) {
+      setPickedCoordsForStop({ coords, draft: stopDraftForPick });
+      setStopDraftForPick(null);
+    } else if (clientDraftForPick) {
+      setPickedCoordsForClient({ coords, draft: clientDraftForPick });
+      setClientDraftForPick(null);
+    }
+  };
+
+  const handleCancelMapPick = () => {
+    if (stopDraftForPick) {
+      setPickedCoordsForStop({
+        coords: [
+          stopDraftForPick.editingStop?.latitude || -34.6037,
+          stopDraftForPick.editingStop?.longitude || -58.3816
+        ],
+        draft: stopDraftForPick
+      });
+      setStopDraftForPick(null);
+    }
+    if (clientDraftForPick) {
+      setPickedCoordsForClient({
+        coords: [
+          clientDraftForPick.editingClient?.latitude || -34.6037,
+          clientDraftForPick.editingClient?.longitude || -58.3816
+        ],
+        draft: clientDraftForPick
+      });
+      setClientDraftForPick(null);
+    }
+  };
+
+  // Filtered stops for the currently selected day
+  const dayFilteredStops = selectedDay === 'Todos'
+    ? stops
+    : stops.filter(s => s.deliveryDay.toLowerCase() === selectedDay.toLowerCase());
+
+  const handleToggleDashboardStop = async (stop: Stop) => {
+    const nextCompleted = !stop.completed;
+    await updateStop(stop.id, {
+      completed: nextCompleted,
+      completedAt: nextCompleted ? Date.now() : (null as any)
+    });
   };
 
   // Helper to generate mock data if collections are empty
@@ -88,7 +164,7 @@ function App() {
         const mockStops = [
           { name: 'Farmacia Central', address: 'Av. Corrientes 2000, Buenos Aires', latitude: -34.6041, longitude: -58.3956, completed: false, orderIndex: 1, deliveryDay: 'Lunes' },
           { name: 'Distribuidora Pasteur', address: 'Pasteur 400, Buenos Aires', latitude: -34.6062, longitude: -58.4012, completed: false, orderIndex: 2, deliveryDay: 'Lunes' },
-          { name: 'Clínica del Sol', address: 'Av. Coronel Díaz 2200, Buenos Aires', latitude: -34.5878, longitude: -58.4111, completed: true, orderIndex: 3, deliveryDay: 'Lunes' }
+          { name: 'Clínica del Sol', address: 'Av. Coronel Díaz 2200, Buenos Aires', latitude: -34.5878, longitude: -58.4111, completed: true, orderIndex: 3, deliveryDay: 'Lunes', completedAt: Date.now() }
         ];
 
         for (const stop of mockStops) {
@@ -101,6 +177,8 @@ function App() {
       }
     }
   };
+
+  const daysOfWeek = ['Todos', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
   return (
     <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950 transition-colors duration-300 overflow-x-hidden">
@@ -164,46 +242,82 @@ function App() {
         {currentTab === 'dashboard' && (
           <div className="space-y-6 flex-1 flex flex-col">
             {/* Stats Dashboard */}
-            <StatsGrid stops={stops} clients={clients} />
+            <StatsGrid stops={dayFilteredStops} clients={clients} />
 
             {/* Quick Actions and Map Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-[450px]">
               {/* Left Column: Quick Stops Status */}
               <div className="glass rounded-3xl p-6 border shadow-lg flex flex-col justify-between">
                 <div>
-                  <h2 className="font-extrabold text-base mb-4">Estado de Entrega</h2>
-                  {stops.length === 0 ? (
+                  <div className="flex items-center justify-between gap-2 mb-4">
+                    <h2 className="font-extrabold text-base">Estado de Entrega</h2>
+                    <select
+                      value={selectedDay}
+                      onChange={(e) => setSelectedDay(e.target.value)}
+                      className="bg-slate-100 dark:bg-slate-800 border-0 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-purple-500"
+                    >
+                      {daysOfWeek.map(day => (
+                        <option key={day} value={day}>
+                          {day === 'Todos' ? 'Todos los días' : day}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {dayFilteredStops.length === 0 ? (
                     <div className="text-center py-8 text-slate-400 dark:text-slate-500 space-y-2">
                       <Database className="w-8 h-8 mx-auto opacity-45 text-purple-500" />
-                      <p className="text-xs font-bold">Sin paradas activas</p>
-                      <button
-                        onClick={handleGenerateMockData}
-                        className="inline-flex items-center gap-1.5 text-xs text-purple-600 dark:text-purple-400 font-bold hover:underline pt-2"
-                      >
-                        <PlusCircle className="w-3.5 h-3.5" />
-                        Generar datos de prueba
-                      </button>
+                      <p className="text-xs font-bold">
+                        {stops.length === 0 ? 'Sin paradas activas' : `Sin paradas para ${selectedDay}`}
+                      </p>
+                      {stops.length === 0 && (
+                        <button
+                          onClick={handleGenerateMockData}
+                          className="inline-flex items-center gap-1.5 text-xs text-purple-600 dark:text-purple-400 font-bold hover:underline pt-2 cursor-pointer"
+                        >
+                          <PlusCircle className="w-3.5 h-3.5" />
+                          Generar datos de prueba
+                        </button>
+                      )}
                     </div>
                   ) : (
-                    <div className="space-y-3 max-h-[280px] overflow-y-auto pr-1">
-                      {stops.map(stop => (
+                    <div className="space-y-2.5 max-h-[310px] overflow-y-auto pr-1">
+                      {dayFilteredStops.map(stop => (
                         <div key={stop.id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-100/40 dark:bg-slate-900/20 border border-slate-200/30 dark:border-slate-800/20">
-                          <div className="flex items-center gap-3">
-                            {stop.completed ? (
-                              <CheckCircle2 className="w-5 h-5 text-emerald-500 flex-shrink-0" />
-                            ) : (
-                              <div className="w-5 h-5 rounded-full border-2 border-amber-500 flex items-center justify-center text-[10px] text-amber-500 font-black flex-shrink-0">
-                                {stop.orderIndex}
+                          <div className="flex items-center gap-3 min-w-0">
+                            <button
+                              onClick={() => handleToggleDashboardStop(stop)}
+                              title={stop.completed ? 'Marcar como pendiente' : 'Marcar como completada'}
+                              className="flex-shrink-0 cursor-pointer transition-transform hover:scale-110"
+                            >
+                              {stop.completed ? (
+                                <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                              ) : (
+                                <div className="w-5 h-5 rounded-full border-2 border-amber-500 flex items-center justify-center text-[10px] text-amber-500 font-black">
+                                  {stop.orderIndex}
+                                </div>
+                              )}
+                            </button>
+                            <div className="truncate">
+                              <div className="flex items-center gap-1.5">
+                                <p className={`text-xs font-bold truncate ${stop.completed ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-slate-200'}`}>
+                                  {stop.name}
+                                </p>
+                                {stop.completed && stop.completedAt && (
+                                  <span className="inline-flex items-center gap-0.5 text-[9px] font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-100/60 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded-full">
+                                    <Clock className="w-2.5 h-2.5" />
+                                    {new Date(stop.completedAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                )}
                               </div>
-                            )}
-                            <div className="truncate max-w-[140px] md:max-w-[200px]">
-                              <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">{stop.name}</p>
-                              <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate">{stop.address}</p>
+                              <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate">
+                                {stop.address} {selectedDay === 'Todos' ? `• ${stop.deliveryDay}` : ''}
+                              </p>
                             </div>
                           </div>
                           <button
                             onClick={() => handleSelectLocation([stop.latitude, stop.longitude])}
-                            className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                            className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer flex-shrink-0"
                             title="Centrar mapa"
                           >
                             <MapPin className="w-3.5 h-3.5" />
@@ -216,7 +330,7 @@ function App() {
 
                 <div className="border-t border-slate-200/50 dark:border-slate-800/50 pt-4 mt-4 text-center">
                   <p className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">
-                    Comparte base de datos con la app de Android para sincronización automática.
+                    Sincronizado en tiempo real con la app Android de Optirutas.
                   </p>
                 </div>
               </div>
@@ -224,10 +338,11 @@ function App() {
               {/* Right Columns: Map View */}
               <div id="map-section" className="block h-[450px] lg:h-auto lg:col-span-2">
                 <MapView 
-                  stops={stops} 
+                  stops={dayFilteredStops} 
                   clients={clients} 
                   activeTab="dashboard" 
-                  selectedCoordinates={selectedCoords} 
+                  selectedCoordinates={selectedCoords}
+                  selectedDayLabel={selectedDay}
                 />
               </div>
             </div>
@@ -242,16 +357,31 @@ function App() {
                 <StopList 
                   stops={stops} 
                   clients={clients}
-                  onSelectStop={handleSelectLocation} 
+                  onSelectStop={handleSelectLocation}
+                  selectedDay={selectedDay}
+                  onSelectDay={setSelectedDay}
+                  onRequestMapPick={(draft) => {
+                    setStopDraftForPick(draft);
+                    setTimeout(() => {
+                      document.getElementById('map-section')?.scrollIntoView({ behavior: 'smooth' });
+                    }, 100);
+                  }}
+                  pickedCoordsForStop={pickedCoordsForStop}
+                  onClearPickedCoords={() => setPickedCoordsForStop(null)}
                 />
               </div>
-              {/* Right: Map view of Stops */}
+              {/* Right: Map view of Stops (Filtered by Selected Day!) */}
               <div id="map-section" className="block h-[450px] lg:h-auto lg:col-span-2">
                 <MapView 
-                  stops={stops} 
+                  stops={dayFilteredStops} 
                   clients={clients} 
                   activeTab="stops" 
-                  selectedCoordinates={selectedCoords} 
+                  selectedCoordinates={selectedCoords}
+                  selectedDayLabel={selectedDay}
+                  isPickingLocation={isPickingLocation}
+                  onPickLocation={handleMapPick}
+                  onCancelPickLocation={handleCancelMapPick}
+                  pickedCoordinates={lastPickedPin}
                 />
               </div>
             </div>
@@ -264,8 +394,17 @@ function App() {
               {/* Left: Clients List */}
               <div className="block lg:col-span-1">
                 <ClientDirectory 
-                  clients={clients} 
-                  onSelectClient={handleSelectLocation} 
+                  clients={clients}
+                  stops={stops}
+                  onSelectClient={handleSelectLocation}
+                  onRequestMapPick={(draft) => {
+                    setClientDraftForPick(draft);
+                    setTimeout(() => {
+                      document.getElementById('map-section')?.scrollIntoView({ behavior: 'smooth' });
+                    }, 100);
+                  }}
+                  pickedCoordsForClient={pickedCoordsForClient}
+                  onClearPickedCoords={() => setPickedCoordsForClient(null)}
                 />
               </div>
               {/* Right: Map view of Clients */}
@@ -274,7 +413,11 @@ function App() {
                   stops={stops} 
                   clients={clients} 
                   activeTab="clients" 
-                  selectedCoordinates={selectedCoords} 
+                  selectedCoordinates={selectedCoords}
+                  isPickingLocation={isPickingLocation}
+                  onPickLocation={handleMapPick}
+                  onCancelPickLocation={handleCancelMapPick}
+                  pickedCoordinates={lastPickedPin}
                 />
               </div>
             </div>
@@ -283,7 +426,15 @@ function App() {
 
         {currentTab === 'history' && (
           <div className="flex-1">
-            <TripHistory history={history} />
+            <TripHistory 
+              history={history}
+              clients={clients}
+              stops={stops}
+              onSwitchToStopsTab={(targetDay) => {
+                setSelectedDay(targetDay);
+                setCurrentTab('stops');
+              }}
+            />
           </div>
         )}
       </main>

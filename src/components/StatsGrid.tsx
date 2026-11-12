@@ -1,6 +1,7 @@
 import React from 'react';
-import { CheckCircle2, AlertCircle, Users, BarChart3 } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Users, Timer } from 'lucide-react';
 import type { Stop, Client } from '../services/firestore';
+import { calculateRouteDistanceKm } from '../utils/geo';
 
 interface StatsGridProps {
   stops: Stop[];
@@ -13,11 +14,40 @@ export const StatsGrid: React.FC<StatsGridProps> = ({ stops, clients }) => {
   const pendingStops = totalStops - completedStops;
   const completionRate = totalStops > 0 ? Math.round((completedStops / totalStops) * 100) : 0;
 
+  // Calculate total distance of active route
+  const totalDistanceKm = calculateRouteDistanceKm(stops);
+
+  // Calculate average transit time between completed stops
+  const completedWithTime = [...stops]
+    .filter(s => s.completed && s.completedAt)
+    .sort((a, b) => (a.completedAt || 0) - (b.completedAt || 0));
+
+  let avgMinutesPerStop = 0;
+  if (completedWithTime.length >= 2) {
+    const first = completedWithTime[0].completedAt!;
+    const last = completedWithTime[completedWithTime.length - 1].completedAt!;
+    const totalMinutes = (last - first) / 60000;
+    avgMinutesPerStop = Math.max(1, Math.round(totalMinutes / (completedWithTime.length - 1)));
+  }
+
+  // Estimate remaining time (use real average if available, otherwise ~15 min per pending stop)
+  const paceMinutes = avgMinutesPerStop > 0 ? avgMinutesPerStop : 15;
+  const estimatedRemainingMins = pendingStops * paceMinutes;
+  const formatEta = (mins: number) => {
+    if (mins <= 0) return 'Ruta finalizada';
+    if (mins >= 60) {
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      return `~${h}h ${m}m restantes`;
+    }
+    return `~${mins} min restantes`;
+  };
+
   const stats = [
     {
       name: 'Progreso de Ruta',
       value: `${completedStops}/${totalStops}`,
-      subtext: `${completionRate}% completado`,
+      subtext: `${completionRate}% completado (${totalDistanceKm.toFixed(1)} km)`,
       icon: CheckCircle2,
       color: 'from-emerald-500 to-teal-600',
       shadowColor: 'shadow-emerald-500/20',
@@ -26,27 +56,27 @@ export const StatsGrid: React.FC<StatsGridProps> = ({ stops, clients }) => {
     {
       name: 'Paradas Pendientes',
       value: pendingStops.toString(),
-      subtext: 'Esperando entrega',
+      subtext: totalStops === 0 ? 'Sin entregas activas' : formatEta(estimatedRemainingMins),
       icon: AlertCircle,
       color: 'from-amber-500 to-orange-600',
       shadowColor: 'shadow-amber-500/20',
       progress: totalStops > 0 ? Math.round((pendingStops / totalStops) * 100) : 0
     },
     {
+      name: 'Ritmo de Entrega',
+      value: avgMinutesPerStop > 0 ? `${avgMinutesPerStop} min` : (completedStops > 0 ? 'En curso' : '—'),
+      subtext: avgMinutesPerStop > 0 ? 'Promedio entre paradas' : 'Requiere 2+ entregas con hora',
+      icon: Timer,
+      color: 'from-purple-500 to-pink-600',
+      shadowColor: 'shadow-purple-500/20',
+    },
+    {
       name: 'Clientes Registrados',
       value: clients.length.toString(),
-      subtext: 'Directorio de logística',
+      subtext: 'Directorio activo y geocodificado',
       icon: Users,
       color: 'from-blue-500 to-indigo-600',
       shadowColor: 'shadow-blue-500/20',
-    },
-    {
-      name: 'Eficiencia de Entrega',
-      value: `${completionRate}%`,
-      subtext: totalStops === 0 ? 'Sin paradas programadas' : (completionRate > 80 ? 'Rendimiento Óptimo' : 'Rendimiento Regular'),
-      icon: BarChart3,
-      color: 'from-purple-500 to-pink-600',
-      shadowColor: 'shadow-purple-500/20',
     }
   ];
 

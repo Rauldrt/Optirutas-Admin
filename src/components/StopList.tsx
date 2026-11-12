@@ -1,34 +1,78 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Plus, Edit2, Trash2, ArrowUp, ArrowDown, MapPin, 
-  CheckSquare, Square, RefreshCw, X, Archive, Clock
+  CheckSquare, Square, RefreshCw, X, Archive, Clock,
+  Wand2, Share2, Download, Crosshair
 } from 'lucide-react';
 import { addStop, updateStop, deleteStop, addHistory, type Stop, type Client } from '../services/firestore';
+import { 
+  calculateDistanceKm, 
+  calculateRouteDistanceKm, 
+  computeOptimizedStopOrder, 
+  extractCoords, 
+  resolveMapLinkCoords 
+} from '../utils/geo';
 
 interface StopListProps {
   stops: Stop[];
   clients: Client[];
   onSelectStop: (coords: [number, number]) => void;
+  selectedDay?: string;
+  onSelectDay?: (day: string) => void;
+  onRequestMapPick?: (currentDraft: {
+    editingStop: Stop | null;
+    name: string;
+    address: string;
+    mapLink: string;
+    orderIndex: string;
+    deliveryDay: string;
+  }) => void;
+  pickedCoordsForStop?: {
+    coords: [number, number];
+    draft: {
+      editingStop: Stop | null;
+      name: string;
+      address: string;
+      mapLink: string;
+      orderIndex: string;
+      deliveryDay: string;
+    };
+  } | null;
+  onClearPickedCoords?: () => void;
 }
 
 export const StopList: React.FC<StopListProps> = ({ 
   stops, 
   clients,
-  onSelectStop 
+  onSelectStop,
+  selectedDay: controlledDay,
+  onSelectDay,
+  onRequestMapPick,
+  pickedCoordsForStop,
+  onClearPickedCoords
 }) => {
-  const [selectedDay, setSelectedDay] = useState<string>('Todos');
+  const [internalDay, setInternalDay] = useState<string>('Todos');
+  const selectedDay = controlledDay !== undefined ? controlledDay : internalDay;
+  const setSelectedDay = (day: string) => {
+    if (onSelectDay) onSelectDay(day);
+    else setInternalDay(day);
+  };
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingStop, setEditingStop] = useState<Stop | null>(null);
 
   // Form State
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
+  const [mapLink, setMapLink] = useState('');
   const [latitude, setLatitude] = useState('');
   const [longitude, setLongitude] = useState('');
   const [orderIndex, setOrderIndex] = useState('');
   const [deliveryDay, setDeliveryDay] = useState('Lunes');
+  const [isResolvingLink, setIsResolvingLink] = useState(false);
+  const [resolveError, setResolveError] = useState<string | null>(null);
+  const [isOptimizing, setIsOptimizing] = useState(false);
 
-  
   // Searchable Client Selector State
   const [clientSearch, setClientSearch] = useState('');
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
@@ -39,6 +83,61 @@ export const StopList: React.FC<StopListProps> = ({
   const [archiveDuration, setArchiveDuration] = useState('');
   const [isArchiving, setIsArchiving] = useState(false);
 
+  // Restore modal when returning from Map Pick mode
+  useEffect(() => {
+    if (pickedCoordsForStop) {
+      const { coords, draft } = pickedCoordsForStop;
+      setEditingStop(draft.editingStop);
+      setName(draft.name);
+      setAddress(draft.address);
+      setMapLink(draft.mapLink || `https://www.google.com/maps?q=${coords[0]},${coords[1]}`);
+      setOrderIndex(draft.orderIndex);
+      setDeliveryDay(draft.deliveryDay);
+      setLatitude(coords[0].toString());
+      setLongitude(coords[1].toString());
+      setResolveError(null);
+      setIsModalOpen(true);
+      if (onClearPickedCoords) onClearPickedCoords();
+    }
+  }, [pickedCoordsForStop, onClearPickedCoords]);
+
+  // Auto-extract coordinates when mapLink changes in Stop modal
+  useEffect(() => {
+    if (!mapLink) {
+      setResolveError(null);
+      return;
+    }
+
+    const instant = extractCoords(mapLink);
+    if (instant) {
+      setLatitude(instant.lat.toString());
+      setLongitude(instant.lng.toString());
+      setResolveError(null);
+      return;
+    }
+
+    const isShort = mapLink.includes('maps.app.goo.gl') || mapLink.includes('goo.gl') || mapLink.includes('bit.ly');
+    if (isShort && mapLink.startsWith('http') && !isResolvingLink) {
+      setIsResolvingLink(true);
+      setResolveError(null);
+      resolveMapLinkCoords(mapLink)
+        .then((coords) => {
+          if (coords) {
+            setLatitude(coords.lat.toString());
+            setLongitude(coords.lng.toString());
+          } else {
+            setResolveError('No se pudieron extraer coordenadas del enlace acortado.');
+          }
+        })
+        .catch(() => {
+          setResolveError('No se pudo resolver el enlace corto.');
+        })
+        .finally(() => {
+          setIsResolvingLink(false);
+        });
+    }
+  }, [mapLink]);
+
   // Filter stops by day
   const filteredStops = selectedDay === 'Todos' 
     ? stops 
@@ -46,18 +145,19 @@ export const StopList: React.FC<StopListProps> = ({
 
   // Sort stops by orderIndex
   const sortedStops = [...filteredStops].sort((a, b) => a.orderIndex - b.orderIndex);
+  const totalDistanceKm = calculateRouteDistanceKm(sortedStops);
 
   const daysOfWeek = ['Todos', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
   // Handle client selection to autofill stop fields
   const handleClientSelect = (clientId: string) => {
-
     const client = clients.find(c => c.id === clientId);
     if (client) {
       setName(client.name);
       setAddress(client.address);
       setLatitude(client.latitude.toString());
       setLongitude(client.longitude.toString());
+      setMapLink(client.mapLink || '');
     }
   };
 
@@ -65,11 +165,12 @@ export const StopList: React.FC<StopListProps> = ({
     setEditingStop(null);
     setName('');
     setAddress('');
+    setMapLink('');
     setLatitude('');
     setLongitude('');
-    setOrderIndex((stops.length + 1).toString());
+    setOrderIndex((sortedStops.length + 1).toString());
     setDeliveryDay(selectedDay === 'Todos' ? 'Lunes' : selectedDay);
-
+    setResolveError(null);
     setClientSearch('');
     setIsClientDropdownOpen(false);
     setIsModalOpen(true);
@@ -79,11 +180,12 @@ export const StopList: React.FC<StopListProps> = ({
     setEditingStop(stop);
     setName(stop.name);
     setAddress(stop.address);
+    setMapLink(stop.mapLink || '');
     setLatitude(stop.latitude.toString());
     setLongitude(stop.longitude.toString());
     setOrderIndex(stop.orderIndex.toString());
     setDeliveryDay(stop.deliveryDay);
-
+    setResolveError(null);
     setIsModalOpen(true);
   };
 
@@ -94,14 +196,19 @@ export const StopList: React.FC<StopListProps> = ({
       return;
     }
 
+    const latNum = parseFloat(latitude);
+    const lngNum = parseFloat(longitude);
+    const generatedMapLink = mapLink || `https://www.google.com/maps?q=${latNum},${lngNum}`;
+
     const stopData = {
       name,
       address,
-      latitude: parseFloat(latitude),
-      longitude: parseFloat(longitude),
+      latitude: latNum,
+      longitude: lngNum,
       completed: editingStop ? editingStop.completed : false,
       orderIndex: parseInt(orderIndex),
       deliveryDay,
+      mapLink: generatedMapLink,
     };
 
     try {
@@ -148,7 +255,6 @@ export const StopList: React.FC<StopListProps> = ({
     const targetStop = sortedStops[targetIndex];
 
     try {
-      // Swap orderIndex
       await updateStop(stop.id, { orderIndex: targetStop.orderIndex });
       await updateStop(targetStop.id, { orderIndex: stop.orderIndex });
     } catch (err) {
@@ -165,10 +271,78 @@ export const StopList: React.FC<StopListProps> = ({
           await updateStop(stop.id, { orderIndex: i + 1 });
         }
       }
-      alert('Índices de orden optimizados secuencialmente.');
     } catch (err) {
       alert('Error al optimizar los índices');
     }
+  };
+
+  // Geographical Nearest-Neighbor Route Optimization (TSP)
+  const handleAutoOptimizeRoute = async () => {
+    if (sortedStops.length < 3) {
+      alert('Se necesitan al menos 3 paradas para optimizar el orden geográfico.');
+      return;
+    }
+
+    setIsOptimizing(true);
+    try {
+      const optimized = computeOptimizedStopOrder(sortedStops);
+      for (let i = 0; i < optimized.length; i++) {
+        const stop = optimized[i];
+        const newOrder = i + 1;
+        if (stop.orderIndex !== newOrder) {
+          await updateStop(stop.id, { orderIndex: newOrder });
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error al auto-optimizar la ruta');
+    } finally {
+      setIsOptimizing(false);
+    }
+  };
+
+  // Share Route via WhatsApp
+  const handleShareWhatsApp = () => {
+    if (sortedStops.length === 0) return;
+    const dayTitle = selectedDay === 'Todos' ? 'Semana Completa' : selectedDay;
+    const lines = [
+      `🚚 *HOJA DE RUTA OPTIRUTAS - ${dayTitle.toUpperCase()}*`,
+      `📍 Paradas: ${sortedStops.length} | Distancia est.: ${totalDistanceKm.toFixed(1)} km`,
+      `────────────────────`
+    ];
+
+    sortedStops.forEach((s, idx) => {
+      const statusIcon = s.completed ? '✅' : '⏳';
+      const navUrl = s.mapLink || `https://maps.google.com/?q=${s.latitude},${s.longitude}`;
+      lines.push(`${idx + 1}. ${statusIcon} *${s.name}*\n   📌 ${s.address}\n   🗺️ ${navUrl}`);
+    });
+
+    const url = `https://wa.me/?text=${encodeURIComponent(lines.join('\n'))}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  // Export Stops to CSV
+  const handleExportCSV = () => {
+    if (sortedStops.length === 0) return;
+    const headers = ['Orden', 'Nombre', 'Direccion', 'Dia', 'Estado', 'Hora Entrega', 'Latitud', 'Longitud', 'Google Maps'];
+    const rows = sortedStops.map(s => [
+      s.orderIndex,
+      `"${s.name.replace(/"/g, '""')}"`,
+      `"${s.address.replace(/"/g, '""')}"`,
+      s.deliveryDay,
+      s.completed ? 'Completado' : 'Pendiente',
+      s.completedAt ? formatTime(s.completedAt) : '',
+      s.latitude,
+      s.longitude,
+      s.mapLink || `https://maps.google.com/?q=${s.latitude},${s.longitude}`
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `hoja_de_ruta_${selectedDay.toLowerCase()}.csv`;
+    link.click();
   };
 
   // Format milliseconds into HH:MM format
@@ -220,7 +394,6 @@ export const StopList: React.FC<StopListProps> = ({
     }
     setArchiveDriverName('');
     
-    // Auto-calculate duration
     const completedWithTime = completedStops
       .filter(s => s.completedAt)
       .sort((a, b) => (a.completedAt || 0) - (b.completedAt || 0));
@@ -272,7 +445,6 @@ export const StopList: React.FC<StopListProps> = ({
       }
 
       setIsArchiveModalOpen(false);
-      alert('¡Ruta archivada en el historial con éxito!');
     } catch (err) {
       console.error('Error al archivar la ruta:', err);
       alert('Hubo un error al archivar la ruta.');
@@ -287,33 +459,58 @@ export const StopList: React.FC<StopListProps> = ({
       <div className="flex flex-col gap-4 glass p-5 rounded-3xl border shadow-lg">
         {/* Day Tabs */}
         <div className="flex flex-wrap gap-1.5">
-          {daysOfWeek.map(day => (
-            <button
-              key={day}
-              onClick={() => setSelectedDay(day)}
-              className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all duration-300 ${
-                selectedDay === day
-                  ? 'bg-purple-600 text-white shadow-md shadow-purple-500/20'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700/60'
-              }`}
-            >
-              {day}
-            </button>
-          ))}
+          {daysOfWeek.map(day => {
+            const countForDay = day === 'Todos' 
+              ? stops.length 
+              : stops.filter(s => s.deliveryDay.toLowerCase() === day.toLowerCase()).length;
+            return (
+              <button
+                key={day}
+                onClick={() => setSelectedDay(day)}
+                className={`px-3.5 py-2 rounded-2xl text-xs font-bold transition-all duration-300 flex items-center gap-1.5 cursor-pointer ${
+                  selectedDay === day
+                    ? 'bg-purple-600 text-white shadow-md shadow-purple-500/20'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700/60'
+                }`}
+              >
+                <span>{day}</span>
+                {countForDay > 0 && (
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
+                    selectedDay === day 
+                      ? 'bg-white/20 text-white' 
+                      : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                  }`}>
+                    {countForDay}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         <div className="border-t border-slate-200/50 dark:border-slate-800/50" />
 
-        {/* Action Buttons */}
+        {/* Primary Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
+          {sortedStops.length > 2 && (
+            <button
+              onClick={handleAutoOptimizeRoute}
+              disabled={isOptimizing}
+              className="flex-1 min-w-[140px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-2xl text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors cursor-pointer"
+              title="Ordenar paradas automáticamente por cercanía geográfica (menor kilometraje)"
+            >
+              <Wand2 className="w-3.5 h-3.5" />
+              <span>{isOptimizing ? 'Optimizando...' : 'Auto-Optimizar Ruta'}</span>
+            </button>
+          )}
           {sortedStops.length > 1 && (
             <button
               onClick={handleOptimizeIndices}
-              className="flex-1 min-w-[130px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-2xl text-[11px] font-bold border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              title="Re-ordenar índices del 1 al N secuencialmente"
+              className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-2xl text-[11px] font-bold border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              title="Re-enumerar índices del 1 al N secuencialmente"
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              <span>Numerar Secuencial</span>
+              <span>1..N</span>
             </button>
           )}
           <button
@@ -322,7 +519,7 @@ export const StopList: React.FC<StopListProps> = ({
             className={`flex-1 min-w-[110px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-2xl text-[11px] font-bold transition-all ${
               completedStops.length > 0
                 ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:opacity-95 shadow-lg shadow-emerald-500/25 cursor-pointer'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-405 dark:text-slate-650 cursor-not-allowed border border-slate-200/50 dark:border-slate-800/50'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed border border-slate-200/50 dark:border-slate-800/50'
             }`}
             title={
               completedStops.length > 0 
@@ -341,6 +538,33 @@ export const StopList: React.FC<StopListProps> = ({
             <span>Añadir Parada</span>
           </button>
         </div>
+
+        {/* Export / Share Toolbar */}
+        {sortedStops.length > 0 && (
+          <div className="flex items-center justify-between gap-2 pt-1">
+            <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500">
+              Distancia estimada: <strong className="text-slate-700 dark:text-slate-300">{totalDistanceKm.toFixed(1)} km</strong>
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={handleShareWhatsApp}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 transition-colors cursor-pointer"
+                title="Compartir hoja de ruta por WhatsApp"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                <span>WhatsApp</span>
+              </button>
+              <button
+                onClick={handleExportCSV}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                title="Descargar hoja de ruta en CSV (Excel)"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>CSV</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Stop List Grid */}
@@ -358,109 +582,121 @@ export const StopList: React.FC<StopListProps> = ({
           <div className="p-12 text-center text-slate-400 dark:text-slate-500">
             <MapPin className="w-12 h-12 mx-auto mb-4 opacity-40 text-purple-500" />
             <p className="font-semibold">No hay paradas registradas para esta selección.</p>
-            <p className="text-xs mt-1">Presiona "Añadir Parada" para crear una nueva entrega.</p>
+            <p className="text-xs mt-1">Presiona "Añadir Parada" o envía clientes desde el Directorio.</p>
           </div>
         ) : (
           <div className="divide-y divide-slate-200/50 dark:divide-slate-800/50 max-h-[550px] overflow-y-auto">
-            {sortedStops.map((stop, idx) => (
-              <div 
-                key={stop.id} 
-                className={`p-4 flex items-center justify-between gap-4 transition-colors hover:bg-slate-50/40 dark:hover:bg-slate-900/10 ${
-                  stop.completed ? 'bg-emerald-50/10 dark:bg-emerald-950/5' : ''
-                }`}
-              >
-                {/* Left: Reordering & Completion Status */}
-                <div className="flex items-center gap-3">
-                  {/* Reordering Buttons */}
-                  <div className="flex flex-col gap-0.5">
-                    <button
-                      onClick={() => moveStop(stop, 'up')}
-                      disabled={idx === 0}
-                      className="text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 disabled:opacity-30 disabled:pointer-events-none transition-colors"
-                    >
-                      <ArrowUp className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => moveStop(stop, 'down')}
-                      disabled={idx === sortedStops.length - 1}
-                      className="text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 disabled:opacity-30 disabled:pointer-events-none transition-colors"
-                    >
-                      <ArrowDown className="w-4 h-4" />
-                    </button>
-                  </div>
+            {sortedStops.map((stop, idx) => {
+              const prevStop = idx > 0 ? sortedStops[idx - 1] : null;
+              const legKm = prevStop
+                ? calculateDistanceKm(prevStop.latitude, prevStop.longitude, stop.latitude, stop.longitude)
+                : 0;
 
-                  {/* Complete Checkbox */}
-                  <button 
-                    onClick={() => toggleCompleted(stop)}
-                    className="text-slate-500 hover:text-purple-600 transition-colors"
-                  >
-                    {stop.completed ? (
-                      <CheckSquare className="w-6 h-6 text-emerald-500" />
-                    ) : (
-                      <Square className="w-6 h-6 text-slate-300 dark:text-slate-700" />
-                    )}
-                  </button>
-
-                  {/* Stop Information */}
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-extrabold text-sm text-slate-900 dark:text-white">
-                        {stop.name}
-                      </span>
-                      <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                        Parada {stop.orderIndex}
-                      </span>
-                      {selectedDay === 'Todos' && (
-                        <span className="bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                          {stop.deliveryDay}
-                        </span>
-                      )}
-                      
-                      {/* Delivery Time and Transit Metrics */}
-                      {stop.completed && stop.completedAt && (
-                        <span className="bg-emerald-100/70 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[10px] font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                          <span>{formatTime(stop.completedAt)}</span>
-                          {transitTimes[stop.id] && (
-                            <span className="opacity-80 font-bold border-l border-emerald-300 dark:border-emerald-700 pl-1 ml-1 text-[9px]">
-                              {transitTimes[stop.id]}
-                            </span>
-                          )}
-                        </span>
-                      )}
+              return (
+                <div 
+                  key={stop.id} 
+                  className={`p-4 flex items-center justify-between gap-4 transition-colors hover:bg-slate-50/40 dark:hover:bg-slate-900/10 ${
+                    stop.completed ? 'bg-emerald-50/10 dark:bg-emerald-950/5' : ''
+                  }`}
+                >
+                  {/* Left: Reordering & Completion Status */}
+                  <div className="flex items-center gap-3">
+                    {/* Reordering Buttons */}
+                    <div className="flex flex-col gap-0.5">
+                      <button
+                        onClick={() => moveStop(stop, 'up')}
+                        disabled={idx === 0}
+                        className="text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
+                      >
+                        <ArrowUp className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => moveStop(stop, 'down')}
+                        disabled={idx === sortedStops.length - 1}
+                        className="text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
+                      >
+                        <ArrowDown className="w-4 h-4" />
+                      </button>
                     </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                      {stop.address}
-                    </p>
+
+                    {/* Complete Checkbox */}
+                    <button 
+                      onClick={() => toggleCompleted(stop)}
+                      className="text-slate-500 hover:text-purple-600 transition-colors cursor-pointer"
+                    >
+                      {stop.completed ? (
+                        <CheckSquare className="w-6 h-6 text-emerald-500" />
+                      ) : (
+                        <Square className="w-6 h-6 text-slate-300 dark:text-slate-700" />
+                      )}
+                    </button>
+
+                    {/* Stop Information */}
+                    <div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-extrabold text-sm text-slate-900 dark:text-white">
+                          {stop.name}
+                        </span>
+                        <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                          #{stop.orderIndex}
+                        </span>
+                        {legKm > 0 && (
+                          <span className="bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                            +{legKm.toFixed(1)} km
+                          </span>
+                        )}
+                        {selectedDay === 'Todos' && (
+                          <span className="bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                            {stop.deliveryDay}
+                          </span>
+                        )}
+                        
+                        {/* Delivery Time and Transit Metrics */}
+                        {stop.completed && stop.completedAt && (
+                          <span className="bg-emerald-100/70 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[10px] font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <Clock className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                            <span>{formatTime(stop.completedAt)}</span>
+                            {transitTimes[stop.id] && (
+                              <span className="opacity-80 font-bold border-l border-emerald-300 dark:border-emerald-700 pl-1 ml-1 text-[9px]">
+                                {transitTimes[stop.id]}
+                              </span>
+                            )}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        {stop.address}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Right: Action Buttons */}
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => onSelectStop([stop.latitude, stop.longitude])}
+                      className="p-2 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                      title="Enfocar en mapa"
+                    >
+                      <MapPin className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => openEditModal(stop)}
+                      className="p-2 text-slate-400 hover:text-amber-500 dark:hover:text-amber-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                      title="Editar"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(stop.id)}
+                      className="p-2 text-slate-400 hover:text-rose-500 dark:hover:text-rose-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                      title="Eliminar"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
-
-                {/* Right: Action Buttons */}
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => onSelectStop([stop.latitude, stop.longitude])}
-                    className="p-2 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
-                    title="Enfocar en mapa"
-                  >
-                    <MapPin className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => openEditModal(stop)}
-                    className="p-2 text-slate-400 hover:text-amber-500 dark:hover:text-amber-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
-                    title="Editar"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(stop.id)}
-                    className="p-2 text-slate-400 hover:text-rose-500 dark:hover:text-rose-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
-                    title="Eliminar"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -468,7 +704,7 @@ export const StopList: React.FC<StopListProps> = ({
       {/* Add / Edit Stop Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fade-in">
-          <div className="glass rounded-3xl border shadow-2xl w-full max-w-lg overflow-hidden animate-slide-up">
+          <div className="glass rounded-3xl border shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto animate-slide-up">
             <div className="p-6 border-b border-slate-200/50 dark:border-slate-800/50 flex items-center justify-between">
               <h3 className="font-extrabold text-lg text-slate-900 dark:text-white">
                 {editingStop ? 'Editar Parada' : 'Añadir Nueva Parada'}
@@ -489,7 +725,6 @@ export const StopList: React.FC<StopListProps> = ({
                     Autocompletar desde Directorio de Clientes (Opcional)
                   </label>
                   
-                  {/* Invisible overlay to close dropdown clicking outside */}
                   {isClientDropdownOpen && (
                     <div 
                       className="fixed inset-0 z-40" 
@@ -574,6 +809,52 @@ export const StopList: React.FC<StopListProps> = ({
                   className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
                   required
                 />
+              </div>
+
+              {/* Optional Google Maps Link */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                    Enlace de Google Maps (Extrae coordenadas)
+                  </label>
+                  {onRequestMapPick && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsModalOpen(false);
+                        onRequestMapPick({
+                          editingStop,
+                          name,
+                          address,
+                          mapLink,
+                          orderIndex,
+                          deliveryDay
+                        });
+                      }}
+                      className="inline-flex items-center gap-1 text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
+                    >
+                      <Crosshair className="w-3.5 h-3.5" />
+                      <span>Elegir en el mapa</span>
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="url"
+                  placeholder="https://maps.google.com/... o maps.app.goo.gl/..."
+                  value={mapLink}
+                  onChange={(e) => setMapLink(e.target.value)}
+                  className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+                />
+                {isResolvingLink && (
+                  <p className="text-xs text-purple-600 dark:text-purple-400 font-semibold mt-1.5 animate-pulse">
+                    🔄 Extrayendo coordenadas del enlace...
+                  </p>
+                )}
+                {resolveError && (
+                  <p className="text-xs text-amber-500 font-semibold mt-1.5">
+                    ⚠️ {resolveError}
+                  </p>
+                )}
               </div>
 
               {/* Coordinates */}
