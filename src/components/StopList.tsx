@@ -1,16 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Plus, Edit2, Trash2, ArrowUp, ArrowDown, MapPin, 
   CheckSquare, Square, RefreshCw, X, Archive, Clock,
-  Wand2, Share2, Download, Crosshair
+  Wand2, Share2, Download, Crosshair, Search, Sparkles, Check
 } from 'lucide-react';
 import { addStop, updateStop, deleteStop, addHistory, type Stop, type Client } from '../services/firestore';
 import { 
   calculateDistanceKm, 
   calculateRouteDistanceKm, 
+  calculateSequenceDistanceKm,
   computeOptimizedStopOrder, 
   extractCoords, 
-  resolveMapLinkCoords 
+  resolveMapLinkCoords,
+  getCurrentDayNameEs,
+  smartSearchMatch
 } from '../utils/geo';
 
 interface StopListProps {
@@ -51,12 +54,20 @@ export const StopList: React.FC<StopListProps> = ({
   pickedCoordsForStop,
   onClearPickedCoords
 }) => {
-  const [internalDay, setInternalDay] = useState<string>('Todos');
+  const todayName = getCurrentDayNameEs();
+  const [internalDay, setInternalDay] = useState<string>(todayName);
   const selectedDay = controlledDay !== undefined ? controlledDay : internalDay;
   const setSelectedDay = (day: string) => {
     if (onSelectDay) onSelectDay(day);
     else setInternalDay(day);
   };
+
+  // Smart search query for filtering stops
+  const [stopSearchQuery, setStopSearchQuery] = useState('');
+
+  // Smart Route Proposal State
+  const [preferredStartStopId, setPreferredStartStopId] = useState<string>('');
+  const [dismissedProposalSignature, setDismissedProposalSignature] = useState<string>('');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingStop, setEditingStop] = useState<Stop | null>(null);
@@ -68,7 +79,7 @@ export const StopList: React.FC<StopListProps> = ({
   const [latitude, setLatitude] = useState('');
   const [longitude, setLongitude] = useState('');
   const [orderIndex, setOrderIndex] = useState('');
-  const [deliveryDay, setDeliveryDay] = useState('Lunes');
+  const [deliveryDay, setDeliveryDay] = useState(todayName);
   const [isResolvingLink, setIsResolvingLink] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [isOptimizing, setIsOptimizing] = useState(false);
@@ -138,14 +149,61 @@ export const StopList: React.FC<StopListProps> = ({
     }
   }, [mapLink]);
 
-  // Filter stops by day
-  const filteredStops = selectedDay === 'Todos' 
-    ? stops 
-    : stops.filter(stop => stop.deliveryDay.toLowerCase() === selectedDay.toLowerCase());
+  // Filter stops by day first
+  const dayStops = useMemo(() => {
+    const base = selectedDay === 'Todos' 
+      ? stops 
+      : stops.filter(stop => stop.deliveryDay.toLowerCase() === selectedDay.toLowerCase());
+    return [...base].sort((a, b) => a.orderIndex - b.orderIndex);
+  }, [stops, selectedDay]);
 
-  // Sort stops by orderIndex
-  const sortedStops = [...filteredStops].sort((a, b) => a.orderIndex - b.orderIndex);
-  const totalDistanceKm = calculateRouteDistanceKm(sortedStops);
+  // Apply smart search filter over dayStops
+  const sortedStops = useMemo(() => {
+    if (!stopSearchQuery.trim()) return dayStops;
+    return dayStops.filter(stop =>
+      smartSearchMatch(
+        stopSearchQuery,
+        stop.name,
+        stop.address,
+        stop.deliveryDay,
+        `parada ${stop.orderIndex}`,
+        stop.completed ? 'completado entregado' : 'pendiente'
+      )
+    );
+  }, [dayStops, stopSearchQuery]);
+
+  const totalDistanceKm = calculateRouteDistanceKm(dayStops);
+
+  // Compute Smart Route Proposal based on locations
+  const routeProposal = useMemo(() => {
+    const pendingValid = dayStops.filter(s => !s.completed && s.latitude !== 0 && s.longitude !== 0);
+    if (pendingValid.length < 3) return null;
+
+    const effectiveStartId = preferredStartStopId && pendingValid.some(s => s.id === preferredStartStopId)
+      ? preferredStartStopId
+      : pendingValid[0].id;
+
+    const proposedOrder = computeOptimizedStopOrder(dayStops, effectiveStartId);
+    const currentIds = dayStops.map(s => s.id).join(',');
+    const proposedIds = proposedOrder.map(s => s.id).join(',');
+
+    const isDifferentOrder = currentIds !== proposedIds;
+    const currentDist = calculateSequenceDistanceKm(dayStops);
+    const proposedDist = calculateSequenceDistanceKm(proposedOrder);
+    const savedKm = Math.max(0, currentDist - proposedDist);
+
+    if (!isDifferentOrder) return null;
+
+    return {
+      proposedOrder,
+      currentDist,
+      proposedDist,
+      savedKm,
+      signature: `${selectedDay}:${currentIds}->${proposedIds}`,
+      effectiveStartId,
+      pendingValid
+    };
+  }, [dayStops, preferredStartStopId, selectedDay]);
 
   const daysOfWeek = ['Todos', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
@@ -168,8 +226,8 @@ export const StopList: React.FC<StopListProps> = ({
     setMapLink('');
     setLatitude('');
     setLongitude('');
-    setOrderIndex((sortedStops.length + 1).toString());
-    setDeliveryDay(selectedDay === 'Todos' ? 'Lunes' : selectedDay);
+    setOrderIndex((dayStops.length + 1).toString());
+    setDeliveryDay(selectedDay === 'Todos' ? todayName : selectedDay);
     setResolveError(null);
     setClientSearch('');
     setIsClientDropdownOpen(false);
@@ -247,12 +305,12 @@ export const StopList: React.FC<StopListProps> = ({
 
   // Reordering helpers
   const moveStop = async (stop: Stop, direction: 'up' | 'down') => {
-    const currentIndex = sortedStops.findIndex(s => s.id === stop.id);
-    if (direction === 'up' && currentIndex === 0) return;
-    if (direction === 'down' && currentIndex === sortedStops.length - 1) return;
+    const currentIndex = dayStops.findIndex(s => s.id === stop.id);
+    if (direction === 'up' && currentIndex <= 0) return;
+    if (direction === 'down' && currentIndex >= dayStops.length - 1) return;
 
     const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-    const targetStop = sortedStops[targetIndex];
+    const targetStop = dayStops[targetIndex];
 
     try {
       await updateStop(stop.id, { orderIndex: targetStop.orderIndex });
@@ -265,8 +323,8 @@ export const StopList: React.FC<StopListProps> = ({
   // Recalculate order indices sequentially to clean up any gaps
   const handleOptimizeIndices = async () => {
     try {
-      for (let i = 0; i < sortedStops.length; i++) {
-        const stop = sortedStops[i];
+      for (let i = 0; i < dayStops.length; i++) {
+        const stop = dayStops[i];
         if (stop.orderIndex !== i + 1) {
           await updateStop(stop.id, { orderIndex: i + 1 });
         }
@@ -276,18 +334,15 @@ export const StopList: React.FC<StopListProps> = ({
     }
   };
 
-  // Geographical Nearest-Neighbor Route Optimization (TSP)
-  const handleAutoOptimizeRoute = async () => {
-    if (sortedStops.length < 3) {
-      alert('Se necesitan al menos 3 paradas para optimizar el orden geográfico.');
-      return;
-    }
+  // Apply Geographical Nearest-Neighbor + 2-opt Route Optimization (TSP)
+  const handleApplyOptimizedOrder = async (customOrder?: Stop[]) => {
+    const targetList = customOrder || computeOptimizedStopOrder(dayStops, preferredStartStopId || undefined);
+    if (targetList.length < 2) return;
 
     setIsOptimizing(true);
     try {
-      const optimized = computeOptimizedStopOrder(sortedStops);
-      for (let i = 0; i < optimized.length; i++) {
-        const stop = optimized[i];
+      for (let i = 0; i < targetList.length; i++) {
+        const stop = targetList[i];
         const newOrder = i + 1;
         if (stop.orderIndex !== newOrder) {
           await updateStop(stop.id, { orderIndex: newOrder });
@@ -295,7 +350,7 @@ export const StopList: React.FC<StopListProps> = ({
       }
     } catch (err) {
       console.error(err);
-      alert('Error al auto-optimizar la ruta');
+      alert('Error al aplicar el orden propuesto');
     } finally {
       setIsOptimizing(false);
     }
@@ -303,15 +358,15 @@ export const StopList: React.FC<StopListProps> = ({
 
   // Share Route via WhatsApp
   const handleShareWhatsApp = () => {
-    if (sortedStops.length === 0) return;
+    if (dayStops.length === 0) return;
     const dayTitle = selectedDay === 'Todos' ? 'Semana Completa' : selectedDay;
     const lines = [
       `🚚 *HOJA DE RUTA OPTIRUTAS - ${dayTitle.toUpperCase()}*`,
-      `📍 Paradas: ${sortedStops.length} | Distancia est.: ${totalDistanceKm.toFixed(1)} km`,
+      `📍 Paradas: ${dayStops.length} | Distancia est.: ${totalDistanceKm.toFixed(1)} km`,
       `────────────────────`
     ];
 
-    sortedStops.forEach((s, idx) => {
+    dayStops.forEach((s, idx) => {
       const statusIcon = s.completed ? '✅' : '⏳';
       const navUrl = s.mapLink || `https://maps.google.com/?q=${s.latitude},${s.longitude}`;
       lines.push(`${idx + 1}. ${statusIcon} *${s.name}*\n   📌 ${s.address}\n   🗺️ ${navUrl}`);
@@ -323,9 +378,9 @@ export const StopList: React.FC<StopListProps> = ({
 
   // Export Stops to CSV
   const handleExportCSV = () => {
-    if (sortedStops.length === 0) return;
+    if (dayStops.length === 0) return;
     const headers = ['Orden', 'Nombre', 'Direccion', 'Dia', 'Estado', 'Hora Entrega', 'Latitud', 'Longitud', 'Google Maps'];
-    const rows = sortedStops.map(s => [
+    const rows = dayStops.map(s => [
       s.orderIndex,
       `"${s.name.replace(/"/g, '""')}"`,
       `"${s.address.replace(/"/g, '""')}"`,
@@ -366,7 +421,7 @@ export const StopList: React.FC<StopListProps> = ({
 
   // Calculate transit time between consecutive completed stops
   const getTransitTimes = () => {
-    const completedStopsSorted = [...sortedStops]
+    const completedStopsSorted = [...dayStops]
       .filter(s => s.completed && s.completedAt)
       .sort((a, b) => (a.completedAt || 0) - (b.completedAt || 0));
 
@@ -385,7 +440,7 @@ export const StopList: React.FC<StopListProps> = ({
   const transitTimes = getTransitTimes();
 
   // Archive route actions
-  const completedStops = sortedStops.filter(stop => stop.completed);
+  const completedStops = dayStops.filter(stop => stop.completed);
 
   const openArchiveModal = () => {
     if (completedStops.length === 0) {
@@ -439,7 +494,6 @@ export const StopList: React.FC<StopListProps> = ({
         duration: archiveDuration.trim() || 'N/A',
       });
 
-      // Delete completed stops
       for (const stop of completedStops) {
         await deleteStop(stop.id);
       }
@@ -454,26 +508,37 @@ export const StopList: React.FC<StopListProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Controls & Day Selector */}
       <div className="flex flex-col gap-4 glass p-5 rounded-3xl border shadow-lg">
-        {/* Day Tabs */}
+        {/* Day Tabs with Dynamic "Hoy" Indicator */}
         <div className="flex flex-wrap gap-1.5">
           {daysOfWeek.map(day => {
             const countForDay = day === 'Todos' 
               ? stops.length 
               : stops.filter(s => s.deliveryDay.toLowerCase() === day.toLowerCase()).length;
+            const isToday = day.toLowerCase() === todayName.toLowerCase();
+
             return (
               <button
                 key={day}
                 onClick={() => setSelectedDay(day)}
-                className={`px-3.5 py-2 rounded-2xl text-xs font-bold transition-all duration-300 flex items-center gap-1.5 cursor-pointer ${
+                className={`px-3 py-2 rounded-2xl text-xs font-bold transition-all duration-300 flex items-center gap-1.5 cursor-pointer ${
                   selectedDay === day
                     ? 'bg-purple-600 text-white shadow-md shadow-purple-500/20'
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700/60'
                 }`}
               >
                 <span>{day}</span>
+                {isToday && (
+                  <span className={`text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded-full font-black ${
+                    selectedDay === day
+                      ? 'bg-amber-400 text-slate-950'
+                      : 'bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300'
+                  }`}>
+                    Hoy
+                  </span>
+                )}
                 {countForDay > 0 && (
                   <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
                     selectedDay === day 
@@ -488,22 +553,40 @@ export const StopList: React.FC<StopListProps> = ({
           })}
         </div>
 
-        <div className="border-t border-slate-200/50 dark:border-slate-800/50" />
+        {/* Smart Flexible Search Bar for Stops */}
+        <div className="relative">
+          <Search className="absolute left-3.5 top-2.5 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Búsqueda inteligente de paradas (nombre, calle, altura, estado)..."
+            value={stopSearchQuery}
+            onChange={(e) => setStopSearchQuery(e.target.value)}
+            className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl pl-10 pr-8 py-2 text-xs font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+          />
+          {stopSearchQuery && (
+            <button
+              onClick={() => setStopSearchQuery('')}
+              className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
 
         {/* Primary Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
-          {sortedStops.length > 2 && (
+          {dayStops.length > 2 && (
             <button
-              onClick={handleAutoOptimizeRoute}
+              onClick={() => handleApplyOptimizedOrder()}
               disabled={isOptimizing}
               className="flex-1 min-w-[140px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-2xl text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors cursor-pointer"
-              title="Ordenar paradas automáticamente por cercanía geográfica (menor kilometraje)"
+              title="Ordenar paradas automáticamente según sus coordenadas geográficas"
             >
               <Wand2 className="w-3.5 h-3.5" />
               <span>{isOptimizing ? 'Optimizando...' : 'Auto-Optimizar Ruta'}</span>
             </button>
           )}
-          {sortedStops.length > 1 && (
+          {dayStops.length > 1 && (
             <button
               onClick={handleOptimizeIndices}
               className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-2xl text-[11px] font-bold border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
@@ -540,7 +623,7 @@ export const StopList: React.FC<StopListProps> = ({
         </div>
 
         {/* Export / Share Toolbar */}
-        {sortedStops.length > 0 && (
+        {dayStops.length > 0 && (
           <div className="flex items-center justify-between gap-2 pt-1">
             <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500">
               Distancia estimada: <strong className="text-slate-700 dark:text-slate-300">{totalDistanceKm.toFixed(1)} km</strong>
@@ -567,6 +650,83 @@ export const StopList: React.FC<StopListProps> = ({
         )}
       </div>
 
+      {/* Automatic Smart Order Proposal Banner */}
+      {routeProposal && dismissedProposalSignature !== routeProposal.signature && (
+        <div className="rounded-3xl p-4 bg-gradient-to-br from-indigo-50 via-purple-50 to-emerald-50 dark:from-indigo-950/50 dark:via-purple-950/40 dark:to-emerald-950/30 border border-indigo-200/70 dark:border-indigo-800/60 shadow-md space-y-3 animate-fade-in">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-xl bg-indigo-600 text-white shadow-sm">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-xs font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <span>Orden Sugerido según Ubicaciones</span>
+                  {routeProposal.savedKm > 0.05 && (
+                    <span className="bg-emerald-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full">
+                      Ahorra {routeProposal.savedKm.toFixed(1)} km
+                    </span>
+                  )}
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
+                  Recorrido actual: {routeProposal.currentDist.toFixed(1)} km → Propuesto: <strong>{routeProposal.proposedDist.toFixed(1)} km</strong>
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setDismissedProposalSignature(routeProposal.signature)}
+              className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg cursor-pointer"
+              title="Ignorar sugerencia por ahora"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Starting Stop Selector */}
+          <div className="flex items-center gap-2 text-[11px]">
+            <span className="font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap">
+              Iniciar recorrido en:
+            </span>
+            <select
+              value={routeProposal.effectiveStartId}
+              onChange={(e) => setPreferredStartStopId(e.target.value)}
+              className="flex-1 bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 py-1 text-xs font-bold text-slate-800 dark:text-slate-100"
+            >
+              {routeProposal.pendingValid.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.address})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Proposed Sequence Chips */}
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold text-indigo-900 dark:text-indigo-200 bg-white/70 dark:bg-slate-900/60 p-2.5 rounded-2xl border border-indigo-100 dark:border-indigo-900/40">
+            {routeProposal.proposedOrder.map((s, idx) => (
+              <React.Fragment key={s.id}>
+                <span className="inline-flex items-center gap-1 bg-indigo-100/80 dark:bg-indigo-950 px-2 py-0.5 rounded-lg">
+                  <span className="text-indigo-600 dark:text-indigo-400 font-black">{idx + 1}.</span>
+                  <span className="truncate max-w-[120px]">{s.name}</span>
+                </span>
+                {idx < routeProposal.proposedOrder.length - 1 && (
+                  <span className="text-slate-400">→</span>
+                )}
+              </React.Fragment>
+            ))}
+          </div>
+
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={() => handleApplyOptimizedOrder(routeProposal.proposedOrder)}
+              disabled={isOptimizing}
+              className="w-full sm:w-auto flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-extrabold shadow-md shadow-indigo-500/20 transition-all cursor-pointer"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>{isOptimizing ? 'Aplicando...' : 'Aplicar Orden Propuesto'}</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Stop List Grid */}
       <div className="glass rounded-3xl border shadow-lg overflow-hidden">
         <div className="p-6 border-b border-slate-200/50 dark:border-slate-800/50 flex items-center justify-between">
@@ -581,8 +741,12 @@ export const StopList: React.FC<StopListProps> = ({
         {sortedStops.length === 0 ? (
           <div className="p-12 text-center text-slate-400 dark:text-slate-500">
             <MapPin className="w-12 h-12 mx-auto mb-4 opacity-40 text-purple-500" />
-            <p className="font-semibold">No hay paradas registradas para esta selección.</p>
-            <p className="text-xs mt-1">Presiona "Añadir Parada" o envía clientes desde el Directorio.</p>
+            <p className="font-semibold">
+              {stopSearchQuery ? 'No hay paradas que coincidan con tu búsqueda.' : 'No hay paradas registradas para este día.'}
+            </p>
+            <p className="text-xs mt-1">
+              {stopSearchQuery ? 'Prueba con otros términos más generales.' : 'Presiona "Añadir Parada" o selecciona clientes desde el mapa de Clientes.'}
+            </p>
           </div>
         ) : (
           <div className="divide-y divide-slate-200/50 dark:divide-slate-800/50 max-h-[550px] overflow-y-auto">
@@ -718,11 +882,11 @@ export const StopList: React.FC<StopListProps> = ({
             </div>
 
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              {/* Autofill from Clients Directory (only for adding stops) */}
+              {/* Autofill from Clients Directory (Smart Search) */}
               {!editingStop && clients.length > 0 && (
                 <div className="relative">
                   <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
-                    Autocompletar desde Directorio de Clientes (Opcional)
+                    Autocompletar desde Directorio de Clientes (Búsqueda Inteligente)
                   </label>
                   
                   {isClientDropdownOpen && (
@@ -735,7 +899,7 @@ export const StopList: React.FC<StopListProps> = ({
                   <div className="relative z-50">
                     <input
                       type="text"
-                      placeholder="Buscar cliente por nombre o dirección..."
+                      placeholder="Buscar por nombre, calle, teléfono o palabras sueltas..."
                       value={clientSearch}
                       onChange={(e) => {
                         setClientSearch(e.target.value);
@@ -749,13 +913,12 @@ export const StopList: React.FC<StopListProps> = ({
                       <div className="absolute left-0 right-0 mt-1.5 max-h-48 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl divide-y divide-slate-100 dark:divide-slate-800 z-50">
                         {(() => {
                           const filtered = clients.filter(c => 
-                            c.name.toLowerCase().includes(clientSearch.toLowerCase()) ||
-                            c.address.toLowerCase().includes(clientSearch.toLowerCase())
+                            smartSearchMatch(clientSearch, c.name, c.address, c.phone, c.email)
                           );
                           if (filtered.length === 0) {
                             return (
                               <div className="p-3 text-xs text-slate-400 text-center">
-                                No se encontraron clientes
+                                No se encontraron clientes coincidentes
                               </div>
                             );
                           }
@@ -901,7 +1064,9 @@ export const StopList: React.FC<StopListProps> = ({
                     className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
                   >
                     {daysOfWeek.filter(d => d !== 'Todos').map(day => (
-                      <option key={day} value={day}>{day}</option>
+                      <option key={day} value={day}>
+                        {day} {day.toLowerCase() === todayName.toLowerCase() ? '(Hoy)' : ''}
+                      </option>
                     ))}
                   </select>
                 </div>

@@ -3,7 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, useMapEvents 
 import L from 'leaflet';
 import { updateStop, type Stop, type Client } from '../services/firestore';
 import { calculateRouteDistanceKm } from '../utils/geo';
-import { Crosshair, Route as RouteIcon, X } from 'lucide-react';
+import { Crosshair, Route as RouteIcon, X, MousePointerClick, Send, BoxSelect } from 'lucide-react';
 
 // Component to handle map center changes dynamically
 const ChangeMapView: React.FC<{ center: [number, number]; zoom?: number }> = ({ center, zoom }) => {
@@ -32,6 +32,49 @@ const MapClickHandler: React.FC<{
   return null;
 };
 
+// Helper button inside MapContainer context to select all clients in current viewport bounds
+const SelectVisibleBoundsButton: React.FC<{
+  clients: Client[];
+  selectedClientIds: string[];
+  onSetSelectedClients?: (ids: string[]) => void;
+}> = ({ clients, selectedClientIds, onSetSelectedClients }) => {
+  const map = useMap();
+
+  const handleSelectVisible = () => {
+    if (!onSetSelectedClients) return;
+    const bounds = map.getBounds();
+    const visibleIds = clients
+      .filter(
+        c =>
+          c.latitude !== 0 &&
+          c.longitude !== 0 &&
+          bounds.contains([c.latitude, c.longitude])
+      )
+      .map(c => c.id);
+
+    // Merge with existing selection preserving order
+    const merged = [...selectedClientIds];
+    for (const id of visibleIds) {
+      if (!merged.includes(id)) {
+        merged.push(id);
+      }
+    }
+    onSetSelectedClients(merged);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleSelectVisible}
+      className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md text-slate-700 dark:text-slate-200 border border-slate-200/70 dark:border-slate-800/70 hover:bg-purple-50 dark:hover:bg-purple-950/40 px-3 py-2 rounded-2xl shadow-lg flex items-center gap-1.5 text-xs font-bold transition-all cursor-pointer"
+      title="Seleccionar todos los clientes visibles en la zona actual del mapa"
+    >
+      <BoxSelect className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+      <span>Seleccionar zona visible</span>
+    </button>
+  );
+};
+
 interface MapViewProps {
   stops: Stop[];
   clients: Client[];
@@ -42,6 +85,11 @@ interface MapViewProps {
   onPickLocation?: (coords: [number, number]) => void;
   onCancelPickLocation?: () => void;
   pickedCoordinates?: [number, number] | null;
+  // Client map selection props
+  selectedClientIds?: string[];
+  onToggleSelectClient?: (clientId: string) => void;
+  onSetSelectedClients?: (clientIds: string[]) => void;
+  onRequestSendSelectedClients?: () => void;
 }
 
 export const MapView: React.FC<MapViewProps> = ({ 
@@ -53,10 +101,16 @@ export const MapView: React.FC<MapViewProps> = ({
   isPickingLocation = false,
   onPickLocation,
   onCancelPickLocation,
-  pickedCoordinates
+  pickedCoordinates,
+  selectedClientIds = [],
+  onToggleSelectClient,
+  onSetSelectedClients,
+  onRequestSendSelectedClients
 }) => {
   const [mapCenter, setMapCenter] = useState<[number, number]>([-34.6037, -58.3816]); // Buenos Aires default
   const [zoom, setZoom] = useState<number>(13);
+  // Quick-select mode on Clients map: clicking a marker immediately toggles selection
+  const [quickMapSelectMode, setQuickMapSelectMode] = useState<boolean>(true);
 
   // Auto-center map based on items or selection
   useEffect(() => {
@@ -81,7 +135,23 @@ export const MapView: React.FC<MapViewProps> = ({
   }, [stops, clients, activeTab, selectedCoordinates]);
 
   // Create custom markers using L.divIcon
-  const createClientIcon = () => {
+  const createClientIcon = (selectionOrder: number | null) => {
+    if (selectionOrder !== null) {
+      return L.divIcon({
+        className: 'custom-selected-client-marker',
+        html: `
+          <div class="relative flex items-center justify-center">
+            <div class="absolute w-9 h-9 bg-emerald-500 rounded-full opacity-40 animate-ping"></div>
+            <div class="w-8 h-8 bg-emerald-600 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center shadow-xl shadow-emerald-500/60 text-white font-black text-xs">
+              ${selectionOrder}
+            </div>
+          </div>
+        `,
+        iconSize: [32, 32],
+        iconAnchor: [16, 16]
+      });
+    }
+
     return L.divIcon({
       className: 'custom-client-marker',
       html: `
@@ -150,6 +220,15 @@ export const MapView: React.FC<MapViewProps> = ({
     .filter(stop => stop.latitude !== 0 && stop.longitude !== 0)
     .map(stop => [stop.latitude, stop.longitude] as [number, number]);
 
+  // Build preview polyline for selected clients in the order they were selected
+  const selectedClientsOrdered = selectedClientIds
+    .map(id => clients.find(c => c.id === id))
+    .filter((c): c is Client => !!c && c.latitude !== 0 && c.longitude !== 0);
+
+  const selectedClientsPolylineCoords = selectedClientsOrdered.map(
+    c => [c.latitude, c.longitude] as [number, number]
+  );
+
   const totalDistanceKm = activeTab !== 'clients' ? calculateRouteDistanceKm(sortedStops) : 0;
 
   const handleToggleStopFromPopup = async (stop: Stop) => {
@@ -183,7 +262,7 @@ export const MapView: React.FC<MapViewProps> = ({
         </div>
       )}
 
-      {/* Route Distance & Filter Badge */}
+      {/* Route Distance & Filter Badge (Stops & Dashboard tabs) */}
       {activeTab !== 'clients' && sortedStops.length > 0 && (
         <div className="absolute bottom-4 left-4 z-[1000] bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-slate-200/60 dark:border-slate-800/60 px-3.5 py-2 rounded-2xl shadow-lg flex items-center gap-3 text-xs">
           <div className="flex items-center gap-1.5 font-extrabold text-purple-600 dark:text-purple-400">
@@ -203,6 +282,47 @@ export const MapView: React.FC<MapViewProps> = ({
         </div>
       )}
 
+      {/* Clients Tab: Floating Action Bar when clients are selected on the map */}
+      {activeTab === 'clients' && selectedClientIds.length > 0 && (
+        <div className="absolute bottom-4 left-4 right-4 z-[1000] bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-emerald-500/40 px-4 py-3 rounded-2xl shadow-2xl flex flex-wrap items-center justify-between gap-3 animate-fade-in">
+          <div className="flex items-center gap-2.5">
+            <span className="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-black flex items-center justify-center shadow-md shadow-emerald-500/30">
+              {selectedClientIds.length}
+            </span>
+            <div>
+              <p className="text-xs font-extrabold text-slate-800 dark:text-white leading-tight">
+                {selectedClientIds.length} cliente(s) en la ruta a programar
+              </p>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold truncate max-w-[240px] sm:max-w-md">
+                {selectedClientsOrdered.map((c, i) => `${i + 1}. ${c.name}`).join(' → ')}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 ml-auto">
+            {onSetSelectedClients && (
+              <button
+                type="button"
+                onClick={() => onSetSelectedClients([])}
+                className="px-3 py-1.5 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                Limpiar
+              </button>
+            )}
+            {onRequestSendSelectedClients && (
+              <button
+                type="button"
+                onClick={onRequestSendSelectedClients}
+                className="flex items-center gap-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-4 py-2 rounded-xl text-xs font-extrabold shadow-lg shadow-emerald-500/30 hover:opacity-95 transition-all cursor-pointer"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Enviar a Ruta ({selectedClientIds.length})</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <MapContainer 
         center={mapCenter} 
         zoom={zoom} 
@@ -211,6 +331,30 @@ export const MapView: React.FC<MapViewProps> = ({
       >
         <ChangeMapView center={mapCenter} zoom={selectedCoordinates ? 15 : undefined} />
         <MapClickHandler enabled={isPickingLocation} onPick={onPickLocation} />
+
+        {/* Clients Tab: Top-Right Interactive Selection Controls */}
+        {activeTab === 'clients' && !isPickingLocation && (
+          <div className="leaflet-top leaflet-right !top-3 !right-3 flex flex-wrap items-center gap-2 pointer-events-auto z-[1000]">
+            <SelectVisibleBoundsButton
+              clients={clients}
+              selectedClientIds={selectedClientIds}
+              onSetSelectedClients={onSetSelectedClients}
+            />
+            <button
+              type="button"
+              onClick={() => setQuickMapSelectMode(prev => !prev)}
+              className={`px-3.5 py-2 rounded-2xl shadow-lg flex items-center gap-1.5 text-xs font-extrabold transition-all cursor-pointer border ${
+                quickMapSelectMode
+                  ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-500/30'
+                  : 'bg-white/95 dark:bg-slate-900/95 text-slate-700 dark:text-slate-200 border-slate-200/70 dark:border-slate-800/70'
+              }`}
+              title="Cuando está activo, tocar un pin de cliente en el mapa lo agrega o quita directamente de la selección"
+            >
+              <MousePointerClick className="w-3.5 h-3.5" />
+              <span>{quickMapSelectMode ? 'Selección 1-Clic: ON' : 'Selección 1-Clic: OFF'}</span>
+            </button>
+          </div>
+        )}
         
         {/* OpenStreetMap Tiles with Custom CSS class for dark mode invert */}
         <TileLayer
@@ -242,35 +386,80 @@ export const MapView: React.FC<MapViewProps> = ({
           />
         )}
 
+        {/* Draw Preview Polyline connecting selected clients on the Clients map */}
+        {activeTab === 'clients' && selectedClientsPolylineCoords.length > 1 && (
+          <Polyline
+            positions={selectedClientsPolylineCoords}
+            color="#10b981" // Emerald-500
+            weight={4}
+            opacity={0.85}
+            dashArray="6, 6"
+          />
+        )}
+
         {/* Render Clients on Map */}
-        {activeTab === 'clients' && clients.map(client => (
-          client.latitude !== 0 && client.longitude !== 0 && (
+        {activeTab === 'clients' && clients.map(client => {
+          if (client.latitude === 0 || client.longitude === 0) return null;
+          const selIdx = selectedClientIds.indexOf(client.id);
+          const isSelected = selIdx !== -1;
+
+          return (
             <Marker 
               key={`client-${client.id}`} 
               position={[client.latitude, client.longitude]}
-              icon={createClientIcon()}
+              icon={createClientIcon(isSelected ? selIdx + 1 : null)}
+              eventHandlers={{
+                click: () => {
+                  if (quickMapSelectMode && onToggleSelectClient && !isPickingLocation) {
+                    onToggleSelectClient(client.id);
+                  }
+                }
+              }}
             >
               <Popup>
-                <div className="p-2 text-slate-800 dark:text-slate-100">
-                  <h3 className="font-extrabold text-sm mb-1">{client.name}</h3>
+                <div className="p-2 text-slate-800 dark:text-slate-100 min-w-[190px]">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <h3 className="font-extrabold text-sm">{client.name}</h3>
+                    {isSelected && (
+                      <span className="bg-emerald-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full">
+                        #{selIdx + 1}
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs mb-1"><b>Dirección:</b> {client.address}</p>
                   {client.phone && <p className="text-xs mb-1"><b>Tel:</b> {client.phone}</p>}
                   {client.email && <p className="text-xs mb-1"><b>Email:</b> {client.email}</p>}
-                  {client.mapLink && (
-                    <a 
-                      href={client.mapLink} 
-                      target="_blank" 
-                      rel="noopener noreferrer" 
-                      className="inline-block mt-2 text-xs font-bold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
-                    >
-                      Ver en Google Maps →
-                    </a>
-                  )}
+
+                  <div className="flex items-center justify-between gap-2 pt-2 mt-2 border-t border-slate-200/60">
+                    {onToggleSelectClient && (
+                      <button
+                        type="button"
+                        onClick={() => onToggleSelectClient(client.id)}
+                        className={`text-[11px] font-bold px-2.5 py-1 rounded-lg text-white transition-colors cursor-pointer ${
+                          isSelected
+                            ? 'bg-rose-500 hover:bg-rose-600'
+                            : 'bg-emerald-600 hover:bg-emerald-700'
+                        }`}
+                      >
+                        {isSelected ? 'Quitar de ruta' : '+ Seleccionar'}
+                      </button>
+                    )}
+                    {client.mapLink && (
+                      <a 
+                        href={client.mapLink} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="text-[11px] font-bold text-indigo-600 hover:underline"
+                      >
+                        Google Maps →
+                      </a>
+                    )}
+                  </div>
                 </div>
               </Popup>
             </Marker>
-          )
-        ))}
+          );
+        })}
 
         {/* Render Stops on Map */}
         {activeTab !== 'clients' && sortedStops.map((stop) => (

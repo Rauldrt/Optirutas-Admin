@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Calendar, User, Clock, Route, Trash2, Plus, RotateCcw, Download, Search, X } from 'lucide-react';
 import { addHistory, deleteHistory, addStop, type RouteHistory, type Client, type Stop } from '../services/firestore';
+import { getCurrentDayNameEs, smartSearchMatch, computeOptimizedStopOrder } from '../utils/geo';
 
 interface TripHistoryProps {
   history: RouteHistory[];
@@ -15,12 +16,13 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
   stops = [],
   onSwitchToStopsTab 
 }) => {
+  const todayName = getCurrentDayNameEs();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [reloadingId, setReloadingId] = useState<string | null>(null);
   
   // Test Log Form State
-  const [day, setDay] = useState('Lunes');
+  const [day, setDay] = useState(todayName);
   const [stopsCount, setStopsCount] = useState('');
   const [stopsSummary, setStopsSummary] = useState('');
   const [driverName, setDriverName] = useState('');
@@ -37,10 +39,15 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
     });
   };
 
-  const filteredHistory = history.filter(item => 
-    item.stopsSummary.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (item.driverName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.day.toLowerCase().includes(searchTerm.toLowerCase())
+  // Smart flexible search across summary, driver, day, and formatted date
+  const filteredHistory = history.filter(item =>
+    smartSearchMatch(
+      searchTerm,
+      item.stopsSummary,
+      item.driverName,
+      item.day,
+      formatDate(item.dateMillis)
+    )
   );
 
   const totalDeliveriesLogged = history.reduce((sum, item) => sum + (item.stopsCount || 0), 0);
@@ -55,7 +62,7 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
     }
   };
 
-  // Re-load stops from a historical trip using ClientDirectory matches
+  // Re-load stops from a historical trip using ClientDirectory matches and propose optimal order
   const handleRepeatRoute = async (item: RouteHistory) => {
     const stopNames = item.stopsSummary
       .split(',')
@@ -67,7 +74,7 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
       return;
     }
 
-    const targetDay = item.day && item.day !== 'Varios' ? item.day : 'Lunes';
+    const targetDay = item.day && item.day !== 'Varios' ? item.day : todayName;
     if (!window.confirm(`¿Quieres volver a cargar ${stopNames.length} parada(s) como pendientes para el día ${targetDay}?`)) {
       return;
     }
@@ -81,21 +88,35 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
         ? Math.max(...existingForDay.map(s => s.orderIndex)) + 1
         : 1;
 
-      for (const rawName of stopNames) {
-        const matchedClient = clients.find(
-          c => c.name.toLowerCase() === rawName.toLowerCase() ||
-               rawName.toLowerCase().includes(c.name.toLowerCase())
+      const draftStops: Stop[] = stopNames.map((rawName, idx) => {
+        const matchedClient = clients.find(c =>
+          smartSearchMatch(rawName, c.name)
         );
-
-        await addStop({
+        return {
+          id: `temp-${idx}`,
           name: matchedClient ? matchedClient.name : rawName,
           address: matchedClient ? matchedClient.address : 'Dirección pendiente de verificar',
           latitude: matchedClient ? matchedClient.latitude : -34.6037,
           longitude: matchedClient ? matchedClient.longitude : -58.3816,
           completed: false,
-          orderIndex: nextOrder++,
+          orderIndex: idx + 1,
           deliveryDay: targetDay,
           mapLink: matchedClient?.mapLink || '',
+        };
+      });
+
+      const orderedDrafts = draftStops.length > 2 ? computeOptimizedStopOrder(draftStops) : draftStops;
+
+      for (const s of orderedDrafts) {
+        await addStop({
+          name: s.name,
+          address: s.address,
+          latitude: s.latitude,
+          longitude: s.longitude,
+          completed: false,
+          orderIndex: nextOrder++,
+          deliveryDay: targetDay,
+          mapLink: s.mapLink || '',
         });
       }
 
@@ -168,16 +189,24 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
-          {/* Search Input */}
-          <div className="relative flex-1 md:w-64">
+          {/* Smart Search Input */}
+          <div className="relative flex-1 md:w-72">
             <Search className="absolute left-3.5 top-2.5 w-4 h-4 text-slate-400" />
             <input
               type="text"
-              placeholder="Filtrar por chofer, día o cliente..."
+              placeholder="Búsqueda inteligente (chofer, día, fecha, cliente)..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl pl-10 pr-4 py-2 text-xs font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
+              className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl pl-10 pr-8 py-2 text-xs font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
             />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
           {filteredHistory.length > 0 && (
@@ -193,7 +222,10 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
 
           {/* Button to simulate completed route from admin panel for testing */}
           <button
-            onClick={() => setIsModalOpen(true)}
+            onClick={() => {
+              setDay(todayName);
+              setIsModalOpen(true);
+            }}
             className="flex items-center gap-1.5 px-4 py-2 rounded-2xl text-xs font-bold border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <Plus className="w-4 h-4" />
@@ -266,7 +298,7 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
                     onClick={() => handleRepeatRoute(item)}
                     disabled={reloadingId === item.id}
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/60 transition-colors cursor-pointer disabled:opacity-50"
-                    title="Volver a cargar estas paradas como ruta activa"
+                    title="Volver a cargar estas paradas como ruta activa (ordenadas por ubicación)"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>{reloadingId === item.id ? 'Cargando...' : 'Repetir Ruta'}</span>
@@ -313,7 +345,9 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
                   className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100"
                 >
                   {['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'].map(d => (
-                    <option key={d} value={d}>{d}</option>
+                    <option key={d} value={d}>
+                      {d} {d.toLowerCase() === todayName.toLowerCase() ? '(Hoy)' : ''}
+                    </option>
                   ))}
                 </select>
               </div>

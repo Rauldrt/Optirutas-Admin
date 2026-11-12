@@ -16,13 +16,16 @@ import {
   addStop,
   updateStop
 } from './services/firestore';
+import { getCurrentDayNameEs } from './utils/geo';
 import { Database, PlusCircle, CheckCircle2, MapPin, Menu, Clock } from 'lucide-react';
 
 function App() {
+  const todayName = getCurrentDayNameEs();
   const [currentTab, setCurrentTab] = useState('dashboard');
   const [darkMode, setDarkMode] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [selectedDay, setSelectedDay] = useState<string>('Todos');
+  // Dynamic default day: starts on today's day of the week (e.g. 'Jueves')
+  const [selectedDay, setSelectedDay] = useState<string>(todayName);
   
   // Real-time Firestore State
   const [stops, setStops] = useState<Stop[]>([]);
@@ -31,6 +34,16 @@ function App() {
   
   // Selected Coordinates to focus map
   const [selectedCoords, setSelectedCoords] = useState<[number, number] | undefined>(undefined);
+
+  // Shared Client Selection State (synchronized between ClientDirectory list and Map)
+  const [selectedClientIds, setSelectedClientIds] = useState<string[]>([]);
+  const [openBatchModalSignal, setOpenBatchModalSignal] = useState<number>(0);
+
+  const handleToggleSelectClient = (clientId: string) => {
+    setSelectedClientIds(prev =>
+      prev.includes(clientId) ? prev.filter(id => id !== clientId) : [...prev, clientId]
+    );
+  };
 
   // Interactive Map Picking State (for StopList & ClientDirectory modals)
   const [stopDraftForPick, setStopDraftForPick] = useState<{
@@ -162,9 +175,9 @@ function App() {
         }
 
         const mockStops = [
-          { name: 'Farmacia Central', address: 'Av. Corrientes 2000, Buenos Aires', latitude: -34.6041, longitude: -58.3956, completed: false, orderIndex: 1, deliveryDay: 'Lunes' },
-          { name: 'Distribuidora Pasteur', address: 'Pasteur 400, Buenos Aires', latitude: -34.6062, longitude: -58.4012, completed: false, orderIndex: 2, deliveryDay: 'Lunes' },
-          { name: 'Clínica del Sol', address: 'Av. Coronel Díaz 2200, Buenos Aires', latitude: -34.5878, longitude: -58.4111, completed: true, orderIndex: 3, deliveryDay: 'Lunes', completedAt: Date.now() }
+          { name: 'Farmacia Central', address: 'Av. Corrientes 2000, Buenos Aires', latitude: -34.6041, longitude: -58.3956, completed: false, orderIndex: 1, deliveryDay: todayName },
+          { name: 'Clínica del Sol', address: 'Av. Coronel Díaz 2200, Buenos Aires', latitude: -34.5878, longitude: -58.4111, completed: false, orderIndex: 2, deliveryDay: todayName },
+          { name: 'Distribuidora Pasteur', address: 'Pasteur 400, Buenos Aires', latitude: -34.6062, longitude: -58.4012, completed: false, orderIndex: 3, deliveryDay: todayName }
         ];
 
         for (const stop of mockStops) {
@@ -221,7 +234,7 @@ function App() {
                 {currentTab === 'history' && 'Historial de Entregas'}
               </h1>
               <p className="text-[10px] md:text-xs text-slate-400 dark:text-slate-500 font-semibold mt-1 truncate">
-                Monitoreo y administración logística de Optirutas
+                Monitoreo y administración logística de Optirutas • Hoy es {todayName}
               </p>
             </div>
           </div>
@@ -258,7 +271,9 @@ function App() {
                     >
                       {daysOfWeek.map(day => (
                         <option key={day} value={day}>
-                          {day === 'Todos' ? 'Todos los días' : day}
+                          {day === 'Todos'
+                            ? 'Todos los días'
+                            : `${day}${day.toLowerCase() === todayName.toLowerCase() ? ' (Hoy)' : ''}`}
                         </option>
                       ))}
                     </select>
@@ -270,6 +285,14 @@ function App() {
                       <p className="text-xs font-bold">
                         {stops.length === 0 ? 'Sin paradas activas' : `Sin paradas para ${selectedDay}`}
                       </p>
+                      {stops.length > 0 && selectedDay !== 'Todos' && (
+                        <button
+                          onClick={() => setSelectedDay('Todos')}
+                          className="inline-flex items-center gap-1.5 text-xs text-purple-600 dark:text-purple-400 font-bold hover:underline pt-1 cursor-pointer"
+                        >
+                          Ver todas las paradas de la semana ({stops.length})
+                        </button>
+                      )}
                       {stops.length === 0 && (
                         <button
                           onClick={handleGenerateMockData}
@@ -397,6 +420,13 @@ function App() {
                   clients={clients}
                   stops={stops}
                   onSelectClient={handleSelectLocation}
+                  selectedClientIds={selectedClientIds}
+                  onSetSelectedClientIds={setSelectedClientIds}
+                  openBatchModalSignal={openBatchModalSignal}
+                  onSwitchToStopsDay={(day) => {
+                    setSelectedDay(day);
+                    setCurrentTab('stops');
+                  }}
                   onRequestMapPick={(draft) => {
                     setClientDraftForPick(draft);
                     setTimeout(() => {
@@ -418,6 +448,10 @@ function App() {
                   onPickLocation={handleMapPick}
                   onCancelPickLocation={handleCancelMapPick}
                   pickedCoordinates={lastPickedPin}
+                  selectedClientIds={selectedClientIds}
+                  onToggleSelectClient={handleToggleSelectClient}
+                  onSetSelectedClients={setSelectedClientIds}
+                  onRequestSendSelectedClients={() => setOpenBatchModalSignal(prev => prev + 1)}
                 />
               </div>
             </div>
