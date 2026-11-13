@@ -369,7 +369,7 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
         </div>
 
         {/* Tip for Map Selection */}
-        <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-semibold px-1">
+        <div className="flex items-center gap-2 p-2.5 rounded-2xl bg-purple-500/10 dark:bg-purple-900/30 border border-purple-500/20 dark:border-purple-700/40 text-purple-900 dark:text-purple-200 text-xs font-semibold">
           <span>💡 Puedes tocar los pines directamente en el mapa para armar tu ruta en orden.</span>
         </div>
 
@@ -403,9 +403,9 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
 
       {/* Directory Grid */}
       <div className="glass rounded-3xl border shadow-lg overflow-hidden">
-        <div className="p-6 border-b border-slate-200/50 dark:border-slate-800/50 flex items-center justify-between">
-          <h2 className="font-extrabold text-lg tracking-tight">Directorio de Clientes</h2>
-          <span className="bg-purple-100 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 text-xs px-3 py-1 rounded-full font-bold">
+        <div className="p-4 sm:p-6 border-b border-slate-200/50 dark:border-slate-800/50 flex items-center justify-between">
+          <h2 className="font-extrabold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white">Directorio de Clientes</h2>
+          <span className="bg-purple-100 dark:bg-purple-950/70 border border-purple-200/50 dark:border-purple-800/50 text-purple-700 dark:text-purple-300 text-xs px-3 py-1 rounded-full font-bold">
             {filteredClients.length} Registrado(s)
           </span>
         </div>
@@ -413,8 +413,8 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
         {filteredClients.length === 0 ? (
           <div className="p-12 text-center text-slate-400 dark:text-slate-500">
             <Search className="w-12 h-12 mx-auto mb-4 opacity-40 text-purple-500" />
-            <p className="font-semibold">No se encontraron clientes.</p>
-            <p className="text-xs mt-1">Intenta cambiar los términos de búsqueda o registra un nuevo cliente.</p>
+            <p className="font-semibold text-slate-700 dark:text-slate-300">No se encontraron clientes.</p>
+            <p className="text-xs mt-1 text-slate-500 dark:text-slate-400">Intenta cambiar los términos de búsqueda o registra un nuevo cliente.</p>
           </div>
         ) : (
           <div className="divide-y divide-slate-200/50 dark:divide-slate-800/50 max-h-[550px] overflow-y-auto">
@@ -424,61 +424,61 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
               return (
                 <div 
                   key={client.id} 
-                  className={`p-5 flex flex-col justify-between gap-3 transition-colors ${
+                  className={`p-4 sm:p-5 flex flex-col justify-between gap-3 transition-colors ${
                     isSelected 
-                      ? 'bg-emerald-50/40 dark:bg-emerald-950/20' 
-                      : 'bg-white/40 dark:bg-slate-900/40 hover:bg-slate-50/60 dark:hover:bg-slate-900/80'
+                      ? 'bg-emerald-500/15 dark:bg-emerald-950/40' 
+                      : 'bg-white/40 dark:bg-slate-900/60 hover:bg-slate-50/80 dark:hover:bg-slate-800/60'
                   }`}
                 >
                   <div className="space-y-2">
                     <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2.5">
+                      <div className="flex items-center gap-2.5 min-w-0">
                         <button
                           onClick={() => toggleSelectClient(client.id)}
-                          className="text-slate-400 hover:text-emerald-600 transition-colors cursor-pointer"
+                          className="text-slate-400 hover:text-emerald-600 dark:text-slate-300 dark:hover:text-emerald-400 transition-colors cursor-pointer flex-shrink-0"
                           title="Seleccionar para enviar en lote a una ruta"
                         >
                           {isSelected ? (
                             <CheckSquare className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
                           ) : (
-                            <Square className="w-5 h-5" />
+                            <Square className="w-5 h-5 text-slate-400 dark:text-slate-400" />
                           )}
                         </button>
-                        <h3 className="font-extrabold text-sm md:text-base text-slate-900 dark:text-white leading-tight flex items-center gap-2">
-                          <span>{client.name}</span>
+                        <h3 className="font-extrabold text-sm md:text-base text-slate-900 dark:text-white leading-tight flex items-center gap-2 truncate">
+                          <span className="truncate">{client.name}</span>
                           {isSelected && (
-                            <span className="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full">
+                            <span className="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full flex-shrink-0">
                               #{selIdx + 1}
                             </span>
                           )}
                         </h3>
                       </div>
 
-                      <div className="flex items-center gap-1 flex-shrink-0">
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
                         <button
                           onClick={() => handleQuickSendSingleClient(client)}
-                          className="p-1.5 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-xl transition-all cursor-pointer"
+                          className="p-1.5 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-xl transition-all cursor-pointer"
                           title="Enviar a ruta de un día"
                         >
                           <Send className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => onSelectClient([client.latitude, client.longitude])}
-                          className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                          className="p-1.5 text-slate-500 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-all cursor-pointer"
                           title="Enfocar en mapa"
                         >
                           <MapPin className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => openEditModal(client)}
-                          className="p-1.5 text-slate-400 hover:text-amber-500 dark:hover:text-amber-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                          className="p-1.5 text-slate-500 dark:text-slate-300 hover:text-amber-500 dark:hover:text-amber-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-all cursor-pointer"
                           title="Editar"
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleDelete(client.id)}
-                          className="p-1.5 text-slate-400 hover:text-rose-500 dark:hover:text-rose-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                          className="p-1.5 text-slate-500 dark:text-slate-300 hover:text-rose-500 dark:hover:text-rose-400 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-all cursor-pointer"
                           title="Eliminar"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -486,20 +486,20 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
                       </div>
                     </div>
 
-                    <p className="text-xs text-slate-500 dark:text-slate-400 pl-7">
+                    <p className="text-xs font-medium text-slate-700 dark:text-slate-200 pl-7">
                       {client.address}
                     </p>
 
-                    <div className="flex flex-wrap gap-x-4 gap-y-2 pt-2 pl-7 text-xs font-semibold text-slate-600 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800/80">
+                    <div className="flex flex-wrap gap-x-4 gap-y-2 pt-2 pl-7 text-xs font-semibold text-slate-600 dark:text-slate-300 border-t border-slate-200/60 dark:border-slate-800/80">
                       {client.phone && (
-                        <span className="flex items-center gap-1.5">
-                          <Phone className="w-3.5 h-3.5 text-indigo-500" />
+                        <span className="flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
+                          <Phone className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
                           {client.phone}
                         </span>
                       )}
                       {client.email && (
-                        <span className="flex items-center gap-1.5">
-                          <Mail className="w-3.5 h-3.5 text-indigo-500" />
+                        <span className="flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
+                          <Mail className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
                           {client.email}
                         </span>
                       )}
@@ -508,9 +508,9 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
                           href={client.mapLink} 
                           target="_blank" 
                           rel="noopener noreferrer" 
-                          className="flex items-center gap-1.5 text-purple-600 dark:text-purple-400 hover:underline"
+                          className="flex items-center gap-1.5 text-purple-600 dark:text-purple-300 hover:text-purple-700 dark:hover:text-purple-200 font-bold hover:underline"
                         >
-                          <ExternalLink className="w-3.5 h-3.5" />
+                          <ExternalLink className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
                           Google Maps
                         </a>
                       )}

@@ -1295,7 +1295,7 @@ export const StopList: React.FC<StopListProps> = ({
                       {stop.completed ? (
                         <CheckSquare className="w-6 h-6 text-emerald-500" />
                       ) : (
-                        <Square className="w-6 h-6 text-slate-300 dark:text-slate-700" />
+                        <Square className="w-6 h-6 text-slate-400 dark:text-slate-400" />
                       )}
                     </button>
 
@@ -1305,7 +1305,7 @@ export const StopList: React.FC<StopListProps> = ({
                         <span className="font-extrabold text-sm text-slate-900 dark:text-white">
                           {stop.name}
                         </span>
-                        <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                        <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-bold px-2 py-0.5 rounded-full">
                           #{stop.orderIndex}
                         </span>
                         {legKm > 0 && (
@@ -1332,7 +1332,7 @@ export const StopList: React.FC<StopListProps> = ({
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                      <p className="text-xs text-slate-600 dark:text-slate-200 font-medium mt-1">
                         {stop.address}
                       </p>
                     </div>

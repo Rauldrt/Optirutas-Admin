@@ -23,7 +23,16 @@ import { usePWAInstall } from './hooks/usePWAInstall';
 function App() {
   const todayName = getCurrentDayNameEs();
   const [currentTab, setCurrentTab] = useState('dashboard');
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const savedTheme = localStorage.getItem('optirutas_dark_mode');
+      if (savedTheme !== null) {
+        return savedTheme === 'true';
+      }
+      return window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)').matches : false;
+    }
+    return false;
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // Dynamic default day: starts on today's day of the week (e.g. 'Jueves')
   const [selectedDay, setSelectedDay] = useState<string>(todayName);
@@ -139,14 +148,30 @@ function App() {
 
   const isPickingLocation = stopDraftForPick !== null || clientDraftForPick !== null;
 
-  // Synchronize darkMode class on documentElement
+  // Synchronize darkMode class on documentElement and persist to localStorage
   useEffect(() => {
     if (darkMode) {
       document.documentElement.classList.add('dark');
+      localStorage.setItem('optirutas_dark_mode', 'true');
     } else {
       document.documentElement.classList.remove('dark');
+      localStorage.setItem('optirutas_dark_mode', 'false');
     }
   }, [darkMode]);
+
+  // Listen to OS system dark mode changes if user hasn't manually overridden
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleSystemThemeChange = (e: MediaQueryListEvent) => {
+      const savedTheme = localStorage.getItem('optirutas_dark_mode');
+      if (savedTheme === null) {
+        setDarkMode(e.matches);
+      }
+    };
+    mediaQuery.addEventListener('change', handleSystemThemeChange);
+    return () => mediaQuery.removeEventListener('change', handleSystemThemeChange);
+  }, []);
 
   // Subscribe to Firestore collections on mount
   useEffect(() => {
@@ -279,36 +304,37 @@ function App() {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col p-4 md:p-6 lg:pl-2 space-y-6 w-full max-w-full lg:max-w-[calc(100vw-18rem)]">
         {/* Top Header */}
-        <header className="flex items-center justify-between gap-4">
-          <div className="flex items-center">
+        <header className="flex items-center justify-between gap-2 sm:gap-4 w-full">
+          <div className="flex items-center min-w-0 flex-1 mr-1 sm:mr-3">
             {/* Hamburger Trigger for Mobile */}
             <button 
               onClick={() => setSidebarOpen(true)} 
-              className="lg:hidden p-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800/50 text-slate-700 dark:text-slate-200 shadow-sm transition-colors hover:bg-slate-55 dark:hover:bg-slate-800/80 mr-3"
+              className="lg:hidden p-2 sm:p-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800/50 text-slate-700 dark:text-slate-200 shadow-sm transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/80 mr-2 sm:mr-3 flex-shrink-0 cursor-pointer"
+              aria-label="Abrir menú"
             >
               <Menu className="w-5 h-5" />
             </button>
             
-            <div>
-              <h1 className="text-xl md:text-2xl font-black text-slate-850 dark:text-white tracking-tight leading-none">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-base sm:text-xl md:text-2xl font-black text-slate-900 dark:text-white tracking-tight leading-tight truncate">
                 {currentTab === 'dashboard' && 'Panel de Control'}
                 {currentTab === 'stops' && 'Planificación de Rutas'}
                 {currentTab === 'clients' && 'Clientes y Ubicaciones'}
                 {currentTab === 'history' && 'Historial de Entregas'}
               </h1>
-              <p className="text-[10px] md:text-xs text-slate-400 dark:text-slate-500 font-semibold mt-1 truncate">
-                Monitoreo y administración logística de Optirutas • Hoy es {todayName}
+              <p className="text-[10px] md:text-xs text-slate-500 dark:text-slate-400 font-semibold mt-0.5 truncate">
+                Monitoreo y administración • Hoy es {todayName}
               </p>
             </div>
           </div>
           
           {/* Header Actions: PWA Install + Firestore Connection Badge */}
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
             {isInstallable && (
               <button
                 type="button"
                 onClick={installApp}
-                className="flex items-center gap-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white px-3 py-1.5 md:px-3.5 md:py-2 rounded-2xl text-[11px] font-black shadow-md shadow-purple-500/25 m3-surface-interactive cursor-pointer"
+                className="flex items-center gap-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-2xl text-[10px] sm:text-[11px] font-black shadow-md shadow-purple-500/25 m3-surface-interactive cursor-pointer flex-shrink-0"
                 title="Instalar Optirutas como App en tu dispositivo"
               >
                 <Download className="w-3.5 h-3.5 animate-bounce" />
@@ -319,7 +345,7 @@ function App() {
 
             {/* Online / Offline Connectivity Badge */}
             <div 
-              className={`flex items-center gap-1.5 md:gap-2 px-3 py-1.5 md:px-4 md:py-2 rounded-2xl flex-shrink-0 border transition-all ${
+              className={`flex items-center gap-1.5 px-2 py-1.5 sm:px-3.5 sm:py-2 rounded-2xl flex-shrink-0 border transition-all ${
                 isOnline 
                   ? 'bg-emerald-100/60 dark:bg-emerald-950/40 border-emerald-200/50 dark:border-emerald-900/30 text-emerald-700 dark:text-emerald-400' 
                   : 'bg-amber-100/80 dark:bg-amber-950/50 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 shadow-sm'
@@ -340,7 +366,17 @@ function App() {
                 )}
               </span>
               <span className="text-[10px] md:text-[11px] font-bold">
-                {isOnline ? 'Conectado' : 'Modo Offline (Local)'}
+                {isOnline ? (
+                  <>
+                    <span className="sm:hidden">Online</span>
+                    <span className="hidden sm:inline">Conectado</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="sm:hidden">Offline</span>
+                    <span className="hidden sm:inline">Modo Offline</span>
+                  </>
+                )}
               </span>
             </div>
           </div>
