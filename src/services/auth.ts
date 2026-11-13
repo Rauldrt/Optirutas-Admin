@@ -6,12 +6,64 @@ import {
   onAuthStateChanged,
   type User 
 } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase/config';
 import type { UserSession } from '../components/AuthGate';
 
 export const SESSION_STORAGE_KEY = 'optirutas_session';
-export const MASTER_ADMIN_PIN = '1234'; // Backup fallback PIN for emergency offline access
+export const DEFAULT_MASTER_ADMIN_PIN = '1234';
+const LOCAL_PIN_CACHE_KEY = 'optirutas_cached_master_pin';
+
+/**
+ * Get the current Master Admin PIN from Firestore (or fallback cache/default)
+ */
+export const getMasterAdminPin = async (): Promise<string> => {
+  try {
+    const secRef = doc(db, 'system_config', 'security');
+    const snap = await getDoc(secRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      if (data?.masterPin && typeof data.masterPin === 'string') {
+        const pin = data.masterPin.trim();
+        localStorage.setItem(LOCAL_PIN_CACHE_KEY, pin);
+        return pin;
+      }
+    }
+  } catch (err) {
+    console.warn('Could not read master pin from firestore:', err);
+  }
+
+  // Fallback to locally cached pin if offline or not found
+  const cached = localStorage.getItem(LOCAL_PIN_CACHE_KEY);
+  return cached || DEFAULT_MASTER_ADMIN_PIN;
+};
+
+/**
+ * Update the Master Admin PIN in Firestore & local cache
+ */
+export const updateMasterAdminPin = async (newPin: string): Promise<void> => {
+  const cleanPin = newPin.trim();
+  if (cleanPin.length < 4) {
+    throw new Error('El PIN debe tener al menos 4 caracteres.');
+  }
+
+  const secRef = doc(db, 'system_config', 'security');
+  await setDoc(secRef, {
+    masterPin: cleanPin,
+    updatedAt: Date.now()
+  }, { merge: true });
+
+  localStorage.setItem(LOCAL_PIN_CACHE_KEY, cleanPin);
+};
+
+/**
+ * Verify an entered PIN against the Firestore/cached Master Admin PIN
+ */
+export const verifyAdminPin = async (enteredPin: string): Promise<boolean> => {
+  if (!enteredPin) return false;
+  const currentPin = await getMasterAdminPin();
+  return enteredPin.trim() === currentPin.trim();
+};
 
 export interface AdminUserData {
   uid: string;

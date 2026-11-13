@@ -20,11 +20,12 @@ import {
   updateStop
 } from './services/firestore';
 import { getCurrentDayNameEs } from './utils/geo';
-import { Database, PlusCircle, CheckCircle2, MapPin, Menu, Clock, Navigation, Download, LogOut } from 'lucide-react';
+import { Database, PlusCircle, CheckCircle2, MapPin, Menu, Clock, Navigation, Download, LogOut, KeyRound } from 'lucide-react';
 import { usePWAInstall } from './hooks/usePWAInstall';
 import { AuthGate, type UserSession } from './components/AuthGate';
 import { DriverView } from './components/DriverView';
 import { signOutAdmin, subscribeToAuth } from './services/auth';
+import { SecuritySettingsModal } from './components/SecuritySettingsModal';
 
 function App() {
   const todayName = getCurrentDayNameEs();
@@ -42,6 +43,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // Dynamic default day: starts on today's day of the week (e.g. 'Jueves')
   const [selectedDay, setSelectedDay] = useState<string>(todayName);
+  const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
 
   // User Authentication & Role Session State ('admin' vs 'driver')
   const [session, setSession] = useState<UserSession | null>(() => {
@@ -484,6 +486,19 @@ function App() {
               </span>
             )}
 
+            {/* Security / Master PIN Modal Button */}
+            {session?.role === 'admin' && (
+              <button
+                type="button"
+                onClick={() => setIsSecurityModalOpen(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-2xl bg-white dark:bg-slate-900 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 border border-slate-200/60 dark:border-slate-800 text-[10px] sm:text-xs font-bold transition-all cursor-pointer flex-shrink-0 shadow-sm"
+                title="Gestionar PIN Maestro de Administrador y Seguridad"
+              >
+                <KeyRound className="w-3.5 h-3.5 text-indigo-500" />
+                <span className="hidden sm:inline">PIN Maestro</span>
+              </button>
+            )}
+
             {/* Admin Logout / Lock Button */}
             <button
               type="button"
@@ -768,6 +783,11 @@ function App() {
             />
           </div>
         )}
+        {/* Security & Master PIN Management Modal */}
+        <SecuritySettingsModal 
+          isOpen={isSecurityModalOpen} 
+          onClose={() => setIsSecurityModalOpen(false)} 
+        />
       </main>
     </div>
   );

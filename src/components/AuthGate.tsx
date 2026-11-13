@@ -11,7 +11,7 @@ import {
   resetAdminPassword, 
   formatAuthError, 
   SESSION_STORAGE_KEY, 
-  MASTER_ADMIN_PIN 
+  verifyAdminPin 
 } from '../services/auth';
 
 export interface UserSession {
@@ -87,14 +87,18 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
       }
     } else if (mode === 'admin') {
       const pin = params.get('pin') || params.get('key');
-      if (pin && pin.trim() === MASTER_ADMIN_PIN) {
-        const session: UserSession = {
-          role: 'admin',
-          loginTime: Date.now()
-        };
-        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-        window.history.replaceState({}, document.title, window.location.pathname);
-        onLoginSuccess(session);
+      if (pin) {
+        verifyAdminPin(pin).then((isValid) => {
+          if (isValid) {
+            const session: UserSession = {
+              role: 'admin',
+              loginTime: Date.now()
+            };
+            localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+            window.history.replaceState({}, document.title, window.location.pathname);
+            onLoginSuccess(session);
+          }
+        });
         return;
       }
     }
@@ -188,21 +192,35 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
     }
   };
 
-  const handleAdminPinSubmit = (e: React.FormEvent) => {
+  const handleAdminPinSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAdminError(null);
 
-    if (adminPin.trim() !== MASTER_ADMIN_PIN) {
-      setAdminError('PIN de Administrador incorrecto (Por defecto: 1234).');
+    if (!adminPin.trim()) {
+      setAdminError('Ingresa el PIN de Administrador.');
       return;
     }
 
-    const session: UserSession = {
-      role: 'admin',
-      loginTime: Date.now()
-    };
-    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-    onLoginSuccess(session);
+    setIsAdminLoading(true);
+    try {
+      const isValid = await verifyAdminPin(adminPin.trim());
+      if (!isValid) {
+        setAdminError('PIN de Administrador incorrecto.');
+        return;
+      }
+
+      const session: UserSession = {
+        role: 'admin',
+        loginTime: Date.now()
+      };
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+      onLoginSuccess(session);
+    } catch (err) {
+      console.error(err);
+      setAdminError('Error al validar el PIN de Administrador.');
+    } finally {
+      setIsAdminLoading(false);
+    }
   };
 
   const activeSelectedVehicle = vehicles.find(v => v.id === selectedVehicleId);
