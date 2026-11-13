@@ -13,14 +13,14 @@ import { MapView } from './MapContainer';
 import { 
   Truck, 
   MapPin, 
-  ExternalLink, 
   CheckCircle2, 
   Navigation, 
   LogOut, 
   Radio, 
   ListOrdered, 
-  Gauge,
-  MessageCircle
+  MessageCircle,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 interface DriverViewProps {
@@ -41,7 +41,6 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
     coords: userCoords,
     heading,
     speedKmH,
-    accuracy,
     startTracking,
     stopTracking
   } = useGeolocation();
@@ -226,7 +225,7 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
 
         {/* Telemetry & Duty Switch */}
         <div className="flex items-center gap-2">
-          {/* Duty Switch Button */}
+          {/* Duty Switch Button: Online / Offline */}
           <button
             type="button"
             onClick={() => setIsOnDuty(prev => !prev)}
@@ -235,10 +234,10 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
                 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm' 
                 : 'bg-slate-800 text-slate-400 border border-slate-700'
             }`}
-            title="Activa o pausa la transmisión GPS en vivo para administración"
+            title={isOnDuty ? 'Móvil Online • Transmitiendo GPS' : 'Móvil Offline • Toca para conectar'}
           >
             <Radio className={`w-3.5 h-3.5 ${isOnDuty ? 'text-emerald-400 animate-pulse' : 'text-slate-500'}`} />
-            <span>{isOnDuty ? 'GPS En Vivo' : 'En Pausa'}</span>
+            <span>{isOnDuty ? 'Online' : 'Offline'}</span>
           </button>
 
           {/* Logout Button */}
@@ -255,27 +254,6 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col p-3 sm:p-5 max-w-4xl w-full mx-auto space-y-4">
-        {/* GPS Live Telemetry Pill */}
-        {isOnDuty && userCoords && (
-          <div className="flex items-center justify-between bg-slate-900/80 border border-slate-800/80 rounded-2xl px-4 py-2 text-xs">
-            <div className="flex items-center gap-2 text-slate-300 font-medium">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
-              <span>Transmitiendo posición satelital</span>
-            </div>
-            <div className="flex items-center gap-3 text-slate-400 text-[11px] font-mono">
-              {speedKmH !== null && (
-                <span className="flex items-center gap-1 text-slate-200 font-bold">
-                  <Gauge className="w-3.5 h-3.5 text-blue-400" />
-                  <span>{speedKmH} km/h</span>
-                </span>
-              )}
-              {accuracy !== null && (
-                <span>Precisión: ±{accuracy}m</span>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* Route Progress Bar */}
         <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-lg space-y-2">
           <div className="flex items-center justify-between text-xs font-bold">
@@ -304,13 +282,23 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
             <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-purple-500 via-indigo-500 to-emerald-500" />
 
             <div className="flex items-start justify-between gap-3 pt-1">
-              <div>
+              <div className="min-w-0 flex-1">
                 <span className="inline-flex items-center gap-1.5 bg-purple-500/20 text-purple-300 border border-purple-500/40 px-2.5 py-0.5 rounded-full text-xs font-black">
                   <span>Próxima Entrega • #{currentStop.orderIndex}</span>
                 </span>
-                <h2 className="text-xl sm:text-2xl font-black text-white mt-1 leading-tight">
-                  {currentStop.name}
-                </h2>
+                
+                {/* Customer Name + Neighborhood/Address inline */}
+                <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 mt-1.5">
+                  <h2 className="text-xl sm:text-2xl font-black text-white leading-tight">
+                    {currentStop.name}
+                  </h2>
+                  {currentStop.address && (
+                    <span className="text-sm sm:text-base font-bold text-purple-300/90 flex items-center gap-1">
+                      <MapPin className="w-4 h-4 text-purple-400 flex-shrink-0" />
+                      <span>{currentStop.address}</span>
+                    </span>
+                  )}
+                </div>
               </div>
 
               {distanceToCurrentStopKm !== null && (
@@ -325,47 +313,85 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
               )}
             </div>
 
-            {/* Address */}
-            <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-3 flex items-start gap-2.5">
-              <MapPin className="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" />
-              <p className="text-sm font-semibold text-slate-200 leading-snug">
-                {currentStop.address}
-              </p>
-            </div>
-
-            {/* External Navigation & Contact Links */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs font-bold">
-              {/* Google Maps / Waze External App */}
-              <a
-                href={currentStop.mapLink || `https://www.google.com/maps/dir/?api=1&destination=${currentStop.latitude},${currentStop.longitude}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="col-span-1 bg-slate-800 hover:bg-slate-700 text-slate-100 py-3 px-3 rounded-2xl flex items-center justify-center gap-2 transition-all cursor-pointer border border-slate-700"
-              >
-                <ExternalLink className="w-4 h-4 text-blue-400" />
-                <span>Google Maps</span>
-              </a>
-
+            {/* Action Buttons: Navegar In-App + Ver Lista (Same Row) */}
+            <div className="grid grid-cols-2 gap-2 text-xs font-bold">
               {/* In-App Turn-by-Turn Navigation */}
               <button
                 type="button"
                 onClick={() => handleStartNavigation(currentStop)}
-                className="col-span-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white py-3 px-3 rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-blue-600/30 transition-all cursor-pointer"
+                className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white py-3.5 px-3 rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-blue-600/30 transition-all cursor-pointer"
               >
                 <Navigation className="w-4 h-4" />
                 <span>Navegar In-App</span>
               </button>
 
-              {/* Toggle Queue View on Mobile */}
+              {/* Collapsible Delivery Queue Trigger */}
               <button
                 type="button"
                 onClick={() => setShowFullQueue(prev => !prev)}
-                className="col-span-2 sm:col-span-1 bg-slate-800/80 hover:bg-slate-700 text-slate-300 py-3 px-3 rounded-2xl flex items-center justify-center gap-2 transition-all cursor-pointer border border-slate-800"
+                className={`py-3.5 px-3 rounded-2xl flex items-center justify-center gap-1.5 transition-all cursor-pointer border ${
+                  showFullQueue
+                    ? 'bg-purple-600 text-white border-purple-500 shadow-md shadow-purple-600/30'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                }`}
               >
-                <ListOrdered className="w-4 h-4 text-purple-400" />
+                <ListOrdered className="w-4 h-4 text-purple-300" />
                 <span>{showFullQueue ? 'Ocultar Lista' : `Ver Lista (${driverStops.length})`}</span>
+                {showFullQueue ? <ChevronUp className="w-4 h-4 ml-0.5" /> : <ChevronDown className="w-4 h-4 ml-0.5" />}
               </button>
             </div>
+
+            {/* Collapsible Delivery List inside card */}
+            {showFullQueue && driverStops.length > 0 && (
+              <div className="bg-slate-950/80 border border-slate-800/80 rounded-2xl p-4 space-y-2 animate-fade-in max-h-64 overflow-y-auto">
+                <div className="flex items-center justify-between pb-1.5 border-b border-slate-800 text-xs font-bold text-slate-400">
+                  <span>Todas las paradas ({driverStops.length})</span>
+                  <span className="text-purple-400">{completedCount}/{totalCount} entregadas</span>
+                </div>
+                <div className="divide-y divide-slate-800/60">
+                  {driverStops.map((stop) => (
+                    <div
+                      key={stop.id}
+                      className={`py-2.5 flex items-center justify-between gap-3 ${
+                        stop.completed ? 'opacity-60' : ''
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span
+                          className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-[11px] flex-shrink-0 ${
+                            stop.completed
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                              : currentStop?.id === stop.id
+                                ? 'bg-purple-600 text-white font-black animate-pulse'
+                                : 'bg-slate-800 text-slate-300'
+                          }`}
+                        >
+                          {stop.completed ? '✓' : stop.orderIndex}
+                        </span>
+                        <div className="min-w-0">
+                          <p className={`text-xs font-bold truncate ${stop.completed ? 'line-through text-slate-400' : 'text-white'}`}>
+                            {stop.name}
+                          </p>
+                          <p className="text-[10px] text-slate-400 truncate">
+                            {stop.address}
+                          </p>
+                        </div>
+                      </div>
+
+                      {!stop.completed && (
+                        <button
+                          type="button"
+                          onClick={() => handleStartNavigation(stop)}
+                          className="px-2.5 py-1 rounded-xl bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 border border-blue-500/30 text-[10px] font-bold cursor-pointer flex-shrink-0"
+                        >
+                          Ir
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Huge Touch Action Button: Confirm Delivery */}
             <button
@@ -421,70 +447,6 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
             onCompleteAndNextStop={handleCompleteStop}
           />
         </div>
-
-        {/* Full Delivery Queue List (Collapsible or visible) */}
-        {showFullQueue && driverStops.length > 0 && (
-          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-black text-white flex items-center gap-2">
-                <ListOrdered className="w-4 h-4 text-purple-400" />
-                <span>Todas las Paradas de Hoy ({driverStops.length})</span>
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowFullQueue(false)}
-                className="text-xs text-slate-400 hover:text-white"
-              >
-                Cerrar
-              </button>
-            </div>
-
-            <div className="divide-y divide-slate-800 max-h-80 overflow-y-auto pr-1">
-              {driverStops.map((stop) => (
-                <div
-                  key={stop.id}
-                  className={`py-3 flex items-center justify-between gap-3 ${
-                    stop.completed ? 'opacity-60' : ''
-                  }`}
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span
-                      className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${
-                        stop.completed
-                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                          : currentStop?.id === stop.id
-                            ? 'bg-purple-600 text-white font-black animate-pulse'
-                            : 'bg-slate-800 text-slate-300'
-                      }`}
-                    >
-                      {stop.completed ? '✓' : stop.orderIndex}
-                    </span>
-                    <div className="min-w-0">
-                      <p className={`text-xs font-bold truncate ${stop.completed ? 'line-through text-slate-400' : 'text-white'}`}>
-                        {stop.name}
-                      </p>
-                      <p className="text-[11px] text-slate-400 truncate">
-                        {stop.address}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {!stop.completed && (
-                      <button
-                        type="button"
-                        onClick={() => handleStartNavigation(stop)}
-                        className="px-2.5 py-1 rounded-xl bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 border border-blue-500/30 text-[11px] font-bold cursor-pointer"
-                      >
-                        Navegar
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </main>
     </div>
   );
