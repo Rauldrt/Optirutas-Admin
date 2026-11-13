@@ -127,7 +127,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* iOS Safari Installation Helper Modal */}
       {showIOSPrompt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm m3-scrim-enter">
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm m3-scrim-enter">
           <div className="glass rounded-3xl border shadow-2xl p-6 max-w-sm w-full space-y-4 m3-dialog-enter text-center">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white flex items-center justify-center mx-auto shadow-lg shadow-purple-500/30">
               <Share2 className="w-6 h-6" />

@@ -582,7 +582,7 @@ export const MapView: React.FC<MapViewProps> = ({
       className={`w-full h-full relative overflow-hidden transition-all duration-300 ${
         isFullscreen 
           ? 'fixed inset-0 z-[9999] rounded-none border-0 shadow-none bg-slate-950 w-screen h-screen' 
-          : `rounded-3xl shadow-2xl border ${
+          : `rounded-3xl shadow-2xl border isolate z-0 ${
               isPickingLocation 
                 ? 'border-purple-500 ring-4 ring-purple-500/30 cursor-crosshair' 
                 : 'border-slate-200/50 dark:border-slate-800/50'

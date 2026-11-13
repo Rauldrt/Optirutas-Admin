@@ -598,7 +598,7 @@ export const VehicleManagement: React.FC<VehicleManagementProps> = ({
 
       {/* Add / Edit Vehicle Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm m3-scrim-enter">
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm m3-scrim-enter">
           <div className="glass rounded-3xl border shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden m3-dialog-enter">
             {/* Modal Header */}
             <div className="p-5 border-b border-slate-200/50 dark:border-slate-800/50 flex items-center justify-between flex-shrink-0">

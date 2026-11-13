@@ -1708,7 +1708,7 @@ export const StopList: React.FC<StopListProps> = ({
 
       {/* Add / Edit Stop Modal (Supports both Bulk Multi-Select and Single Stop with Save & Add Another) */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm m3-scrim-enter">
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm m3-scrim-enter">
           <div className="glass rounded-3xl border shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden m3-dialog-enter">
             {/* Fixed Modal Header */}
             <div className="p-5 border-b border-slate-200/50 dark:border-slate-800/50 space-y-3 flex-shrink-0">
@@ -2422,7 +2422,7 @@ export const StopList: React.FC<StopListProps> = ({
 
       {/* Archive Route Modal */}
       {isArchiveModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm m3-scrim-enter">
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm m3-scrim-enter">
           <div className="glass rounded-3xl border shadow-2xl w-full max-w-lg overflow-hidden m3-dialog-enter">
             <div className="p-6 border-b border-slate-200/50 dark:border-slate-800/50 flex items-center justify-between">
               <h3 className="font-extrabold text-lg text-slate-900 dark:text-white flex items-center gap-2">

@@ -147,9 +147,9 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
     setQuickResolveError(null);
 
     try {
-      // 1. Detect Phone Number from text
+      // 1. Detect Phone Number from text (skips URLs and coordinates)
       const detectedPhone = extractPhoneFromText(rawText);
-      if (detectedPhone && !quickPhone) {
+      if (detectedPhone) {
         setQuickPhone(detectedPhone);
       }
 
@@ -172,7 +172,11 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
           }
         }
       } else {
-        setQuickResolveError('No se encontró un enlace de Google Maps o coordenadas válidas en el texto.');
+        if (/goo\.gl|maps\.app/i.test(rawText)) {
+          setQuickResolveError('Enlace corto detectado. Si tu navegador bloquea la redirección automática, ábrelo en Google Maps y pega las coordenadas o el enlace completo.');
+        } else {
+          setQuickResolveError('No se encontró un enlace de Google Maps o coordenadas válidas en el texto.');
+        }
       }
     } catch (err) {
       console.error(err);
@@ -712,7 +716,7 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
 
       {/* Batch Send to Route Modal with M3 Physics */}
       {isBatchModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm m3-scrim-enter">
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm m3-scrim-enter">
           <div className="glass rounded-3xl border shadow-2xl w-full max-w-md overflow-hidden m3-dialog-enter">
             <div className="p-6 border-b border-slate-200/50 dark:border-slate-800/50 flex items-center justify-between">
               <h3 className="font-extrabold text-lg text-slate-900 dark:text-white flex items-center gap-2">
@@ -823,7 +827,7 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
 
       {/* Add / Edit Client Modal with M3 Physics */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm m3-scrim-enter">
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm m3-scrim-enter">
           <div className="glass rounded-3xl border shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto m3-dialog-enter">
             <div className="p-6 border-b border-slate-200/50 dark:border-slate-800/50 flex items-center justify-between">
               <h3 className="font-extrabold text-lg text-slate-900 dark:text-white">
@@ -984,7 +988,7 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
 
       {/* Modal: Quick Add Client by Link / WhatsApp */}
       {isQuickAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm animate-fade-in">
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm animate-fade-in">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-lg w-full max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
             {/* Modal Header */}
             <div className="p-5 sm:p-6 border-b border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-transparent">

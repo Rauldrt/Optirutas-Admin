@@ -108,16 +108,22 @@ export const smartSearchMatch = (
 };
 
 /**
- * Extract phone number from text if present
+ * Extract phone number from text if present (ignoring URLs and decimal coordinates)
  */
 export const extractPhoneFromText = (text: string): string | null => {
   if (!text) return null;
-  // Match patterns like +54 9 3757 123456, (03757) 15-4433, 3757445566, etc.
-  const phoneMatch = text.match(/(?:\+?54\s?9?\s?)?(?:\(?\d{2,4}\)?[\s.-]?)?\d{3,4}[\s.-]?\d{4}/);
+  // 1. Remove URLs first so we don't accidentally match query params or numbers inside URLs
+  const withoutUrls = text.replace(/https?:\/\/[^\s]+/gi, ' ');
+  // 2. Remove decimals / coordinate pairs so numbers like -25.9909348 are never matched as phone numbers
+  const withoutDecimals = withoutUrls.replace(/-?\d+\.\d+/g, ' ');
+
+  // Match patterns like +54 9 3757 123456, (03757) 15-4433, 3757-551122, 3757551122, etc.
+  const phoneMatch = withoutDecimals.match(/(?:\+?54[\s-]?(?:9[\s-]?)?)?(?:\(?0?\d{2,4}\)?[\s-]?)?(?:15[\s-]?)?\d{2,4}[\s-]?\d{3,4}/);
   if (phoneMatch) {
     const clean = phoneMatch[0].trim();
-    // Only accept if at least 7 digits
-    if (clean.replace(/\D/g, '').length >= 7) {
+    const digits = clean.replace(/\D/g, '');
+    // Only accept if between 7 and 15 digits
+    if (digits.length >= 7 && digits.length <= 15) {
       return clean;
     }
   }
@@ -130,26 +136,58 @@ export const extractPhoneFromText = (text: string): string | null => {
 export const extractCoords = (urlOrText: string): { lat: number; lng: number } | null => {
   if (!urlOrText) return null;
 
-  // 1. URL pattern: @lat,lng
-  const atMatch = urlOrText.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  // 1. Decode URL percent-encoding (e.g. %2C -> comma, %20 -> space)
+  let decoded = urlOrText;
+  try {
+    decoded = decodeURIComponent(urlOrText);
+  } catch {
+    decoded = urlOrText.replace(/%2c/gi, ',').replace(/%20/gi, ' ');
+  }
+  // Ensure any remaining %2C or %20 is replaced
+  decoded = decoded.replace(/%2c/gi, ',').replace(/%20/gi, ' ');
+
+  // 2. URL pattern: @lat,lng
+  const atMatch = decoded.match(/@(-?\d+\.\d+)[,\s+]+(-?\d+\.\d+)/);
   if (atMatch) {
-    return { lat: parseFloat(atMatch[1]), lng: parseFloat(atMatch[2]) };
+    const lat = parseFloat(atMatch[1]);
+    const lng = parseFloat(atMatch[2]);
+    if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      return { lat, lng };
+    }
   }
 
-  // 2. URL pattern: ?q=lat,lng or query=lat,lng or ll=lat,lng
-  const queryMatch = urlOrText.match(/[?&](?:q|query|ll)=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  // 3. URL pattern: ?q=lat,lng or query=lat,lng or ll=lat,lng or daddr= or saddr= or /place/ or /search/
+  const queryMatch = decoded.match(/[?&/](?:q|query|ll|daddr|saddr|place|search)[=/](-?\d+\.\d+)[,\s+]+(-?\d+\.\d+)/i);
   if (queryMatch) {
-    return { lat: parseFloat(queryMatch[1]), lng: parseFloat(queryMatch[2]) };
+    const lat = parseFloat(queryMatch[1]);
+    const lng = parseFloat(queryMatch[2]);
+    if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      return { lat, lng };
+    }
   }
 
-  // 3. URL pattern: !3dlat!4dlng (Google Maps Place format)
-  const placeMatch = urlOrText.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  // 4. URL pattern: !3dlat!4dlng (Google Maps Place format)
+  const placeMatch = decoded.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
   if (placeMatch) {
-    return { lat: parseFloat(placeMatch[1]), lng: parseFloat(placeMatch[2]) };
+    const lat = parseFloat(placeMatch[1]);
+    const lng = parseFloat(placeMatch[2]);
+    if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      return { lat, lng };
+    }
   }
 
-  // 4. Raw coordinate text: e.g. "-25.9782, -54.5821" or "-25.9782 -54.5821"
-  const rawCoordMatch = urlOrText.match(/(-?\d{1,2}\.\d{3,})[\s,]+(-?\d{1,3}\.\d{3,})/);
+  // 5. Pattern: destination=lat,lng or origin=lat,lng
+  const destMatch = decoded.match(/[?&](?:destination|origin)=(-?\d+\.\d+)[,\s+]+(-?\d+\.\d+)/i);
+  if (destMatch) {
+    const lat = parseFloat(destMatch[1]);
+    const lng = parseFloat(destMatch[2]);
+    if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      return { lat, lng };
+    }
+  }
+
+  // 6. Raw coordinate text: e.g. "-25.9782, -54.5821" or "-25.9782 -54.5821" or "-25.9782+-54.5821"
+  const rawCoordMatch = decoded.match(/(-?\d{1,2}\.\d{3,})[\s,+]+(-?\d{1,3}\.\d{3,})/);
   if (rawCoordMatch) {
     const lat = parseFloat(rawCoordMatch[1]);
     const lng = parseFloat(rawCoordMatch[2]);
@@ -169,38 +207,32 @@ export const resolveMapLinkCoords = async (
 ): Promise<{ lat: number; lng: number } | null> => {
   if (!linkToResolve) return null;
 
+  // 1. Instant check on the entire raw text
+  const instantFromRaw = extractCoords(linkToResolve);
+  if (instantFromRaw) return instantFromRaw;
+
   // Extract clean URL from text if mixed with message
   const urlMatch = linkToResolve.match(/https?:\/\/[^\s]+/i);
   const targetUrl = urlMatch ? urlMatch[0] : linkToResolve.trim();
 
-  // 1. Instant check
+  // 2. Instant check on extracted target URL
   const instantCoords = extractCoords(targetUrl);
   if (instantCoords) return instantCoords;
 
-  // 2. Attempt via unshorten.me
+  // 3. Attempt via redirectcheck.org (CORS enabled)
   try {
-    const unshortenRes = await fetch(`https://unshorten.me/json/${encodeURIComponent(targetUrl)}`);
-    if (unshortenRes.ok) {
-      const data = await unshortenRes.json();
-      if (data?.resolved_url) {
-        const coords = extractCoords(data.resolved_url);
-        if (coords) return coords;
-      }
-    }
-  } catch (err) {
-    // Continue to next fallback
-  }
-
-  // 3. Attempt via redirectcheck.org
-  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
     const res = await fetch('https://www.redirectcheck.org/api/check', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: targetUrl })
+      body: JSON.stringify({ url: targetUrl }),
+      signal: controller.signal
     });
+    clearTimeout(timeout);
     if (res.ok) {
       const data = await res.json();
-      const finalUrl = data?.final_result?.final_url || targetUrl;
+      const finalUrl = data?.final_result?.final_url || data?.final_url || targetUrl;
       const coords = extractCoords(finalUrl);
       if (coords) return coords;
     }
