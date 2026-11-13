@@ -24,6 +24,7 @@ import { Database, PlusCircle, CheckCircle2, MapPin, Menu, Clock, Navigation, Do
 import { usePWAInstall } from './hooks/usePWAInstall';
 import { AuthGate, type UserSession } from './components/AuthGate';
 import { DriverView } from './components/DriverView';
+import { signOutAdmin, subscribeToAuth } from './services/auth';
 
 function App() {
   const todayName = getCurrentDayNameEs();
@@ -57,10 +58,28 @@ function App() {
     return null;
   });
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await signOutAdmin();
+    } catch (e) {
+      console.warn(e);
+    }
     localStorage.removeItem('optirutas_session');
     setSession(null);
   };
+
+  // Sync Firebase Auth session on startup
+  useEffect(() => {
+    const unsubscribe = subscribeToAuth((authSession) => {
+      if (authSession) {
+        setSession((prev) => {
+          if (prev?.role === 'driver') return prev;
+          return authSession;
+        });
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   // PWA Installation Hook
   const { isInstallable, installApp } = usePWAInstall();
@@ -456,6 +475,14 @@ function App() {
                 )}
               </span>
             </div>
+
+            {/* Admin User Badge if authenticated */}
+            {session?.adminEmail && (
+              <span className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/60 dark:border-indigo-800/60 text-indigo-700 dark:text-indigo-300 text-xs font-bold truncate max-w-[200px]" title={session.adminEmail}>
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
+                <span className="truncate">{session.adminEmail}</span>
+              </span>
+            )}
 
             {/* Admin Logout / Lock Button */}
             <button

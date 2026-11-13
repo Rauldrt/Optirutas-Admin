@@ -1,4 +1,5 @@
 import { initializeApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
 import { 
   initializeFirestore, 
   persistentLocalCache, 
@@ -17,6 +18,9 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
+
+// Initialize Firebase Auth
+export const auth = getAuth(app);
 
 // Initialize Cloud Firestore using named database "optirutas" with persistent offline cache
 export const db = initializeFirestore(
