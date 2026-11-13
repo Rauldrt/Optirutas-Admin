@@ -588,6 +588,11 @@ export const MapView: React.FC<MapViewProps> = ({
                       Modo Conductor
                     </span>
                   )}
+                  {streetRoute?.isOfflineFallback && (
+                    <span className="inline-flex items-center text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      Offline (Rumbo)
+                    </span>
+                  )}
                 </div>
                 <p className={`font-black text-white truncate mt-0.5 ${
                   isFullscreen ? 'text-base sm:text-xl' : 'text-sm'

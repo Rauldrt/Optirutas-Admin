@@ -1,5 +1,9 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager 
+} from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyDyfVWLPdmecpQWA35Bt4y-fLr8MTRz4ug",
@@ -14,5 +18,13 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize Cloud Firestore using the named database "optirutas"
-export const db = getFirestore(app, "optirutas");
+// Initialize Cloud Firestore using named database "optirutas" with persistent offline cache
+export const db = initializeFirestore(
+  app,
+  {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager()
+    })
+  },
+  "optirutas"
+);

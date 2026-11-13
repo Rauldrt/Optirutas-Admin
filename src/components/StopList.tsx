@@ -3,8 +3,9 @@ import {
   Plus, Edit2, Trash2, ArrowUp, ArrowDown, MapPin, 
   CheckSquare, Square, RefreshCw, X, Archive, Clock,
   Wand2, Share2, Download, Crosshair, Search, Sparkles, Check, Layers, PlusCircle,
-  Calendar, ChevronDown, UserPlus, ArrowLeft, Mail, Phone, Navigation
+  Calendar, ChevronDown, UserPlus, ArrowLeft, Mail, Phone, Navigation, HardDrive
 } from 'lucide-react';
+import { precacheDayRoutes } from '../services/routing';
 import { addStop, updateStop, deleteStop, addHistory, addClient, type Stop, type Client } from '../services/firestore';
 import { 
   calculateDistanceKm, 
@@ -152,6 +153,29 @@ export const StopList: React.FC<StopListProps> = ({
   const [archiveDriverName, setArchiveDriverName] = useState('');
   const [archiveDuration, setArchiveDuration] = useState('');
   const [isArchiving, setIsArchiving] = useState(false);
+
+  // Pre-cache offline route state
+  const [isPrecaching, setIsPrecaching] = useState(false);
+  const [precacheSuccess, setPrecacheSuccess] = useState(false);
+
+  const handlePrecacheOffline = async () => {
+    if (dayStops.length < 2) {
+      alert('Se necesitan al menos 2 paradas en este día para precargar una ruta offline.');
+      return;
+    }
+    setIsPrecaching(true);
+    try {
+      const res = await precacheDayRoutes(dayStops);
+      setPrecacheSuccess(true);
+      setTimeout(() => setPrecacheSuccess(false), 4500);
+      alert(`🎉 ¡Ruta guardada para navegación offline!\n${res.cached} de ${res.total} tramos quedaron almacenados en la memoria del dispositivo para navegar sin conexión.`);
+    } catch (err) {
+      console.error(err);
+      alert('Error al precargar la ruta para uso offline.');
+    } finally {
+      setIsPrecaching(false);
+    }
+  };
 
   // Restore modal when returning from Map Pick mode
   useEffect(() => {
@@ -1031,8 +1055,8 @@ export const StopList: React.FC<StopListProps> = ({
           </div>
         )}
 
-        {/* Primary Action Toolbar: Archivar, WhatsApp, CSV in a single line with M3 surface physics */}
-        <div className="grid grid-cols-3 gap-2">
+        {/* Primary Action Toolbar: Archivar, WhatsApp, CSV y Guardar Offline en cuadrícula simétrica */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <button
             onClick={openArchiveModal}
             disabled={completedStops.length === 0}
@@ -1077,6 +1101,24 @@ export const StopList: React.FC<StopListProps> = ({
           >
             <Download className="w-3.5 h-3.5 shrink-0" />
             <span className="truncate">CSV</span>
+          </button>
+
+          <button
+            onClick={handlePrecacheOffline}
+            disabled={dayStops.length < 2 || isPrecaching}
+            className={`flex items-center justify-center gap-1.5 px-2 py-2 rounded-2xl text-[11px] font-bold m3-surface-interactive ${
+              dayStops.length >= 2
+                ? precacheSuccess
+                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/20 cursor-pointer'
+                  : 'bg-purple-500/10 text-purple-700 dark:text-purple-400 hover:bg-purple-500/20 border border-purple-500/20 cursor-pointer'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed border border-slate-200/50 dark:border-slate-800/50'
+            }`}
+            title={dayStops.length >= 2 ? "Descargar ruta completa a la memoria del teléfono para navegar sin internet" : "Se requieren al menos 2 paradas"}
+          >
+            <HardDrive className={`w-3.5 h-3.5 shrink-0 ${isPrecaching ? 'animate-spin' : ''}`} />
+            <span className="truncate">
+              {isPrecaching ? 'Guardando...' : precacheSuccess ? 'Guardado ✓' : 'Offline'}
+            </span>
           </button>
         </div>
 

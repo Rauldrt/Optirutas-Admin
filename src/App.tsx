@@ -30,6 +30,24 @@ function App() {
 
   // PWA Installation Hook
   const { isInstallable, installApp } = usePWAInstall();
+
+  // Online / Offline connectivity listener
+  const [isOnline, setIsOnline] = useState<boolean>(
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
   
   // Real-time Firestore State
   const [stops, setStops] = useState<Stop[]>([]);
@@ -299,13 +317,30 @@ function App() {
               </button>
             )}
 
-            <div className="flex items-center gap-1.5 md:gap-2 bg-emerald-100/60 dark:bg-emerald-950/40 border border-emerald-200/50 dark:border-emerald-900/30 px-3 py-1.5 md:px-4 md:py-2 rounded-2xl flex-shrink-0">
+            {/* Online / Offline Connectivity Badge */}
+            <div 
+              className={`flex items-center gap-1.5 md:gap-2 px-3 py-1.5 md:px-4 md:py-2 rounded-2xl flex-shrink-0 border transition-all ${
+                isOnline 
+                  ? 'bg-emerald-100/60 dark:bg-emerald-950/40 border-emerald-200/50 dark:border-emerald-900/30 text-emerald-700 dark:text-emerald-400' 
+                  : 'bg-amber-100/80 dark:bg-amber-950/50 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 shadow-sm'
+              }`}
+              title={isOnline ? 'Conectado a internet en tiempo real' : 'Sin conexión a internet. Los cambios se guardan localmente y se sincronizarán al recuperar señal.'}
+            >
               <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                {isOnline ? (
+                  <>
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </>
+                ) : (
+                  <>
+                    <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                  </>
+                )}
               </span>
-              <span className="text-[10px] md:text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
-                Conectado
+              <span className="text-[10px] md:text-[11px] font-bold">
+                {isOnline ? 'Conectado' : 'Modo Offline (Local)'}
               </span>
             </div>
           </div>
