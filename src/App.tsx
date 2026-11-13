@@ -5,13 +5,16 @@ import { MapView } from './components/MapContainer';
 import { StopList } from './components/StopList';
 import { ClientDirectory } from './components/ClientDirectory';
 import { TripHistory } from './components/TripHistory';
+import { VehicleManagement } from './components/VehicleManagement';
 import { 
   subscribeToStops, 
   subscribeToClients, 
   subscribeToHistory, 
+  subscribeToVehicles,
   type Stop, 
   type Client, 
   type RouteHistory,
+  type Vehicle,
   addClient,
   addStop,
   updateStop
@@ -61,6 +64,7 @@ function App() {
   // Real-time Firestore State
   const [stops, setStops] = useState<Stop[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [history, setHistory] = useState<RouteHistory[]>([]);
   
   // Active in-app navigation stop
@@ -177,11 +181,13 @@ function App() {
   useEffect(() => {
     const unsubStops = subscribeToStops((data) => setStops(data));
     const unsubClients = subscribeToClients((data) => setClients(data));
+    const unsubVehicles = subscribeToVehicles((data) => setVehicles(data));
     const unsubHistory = subscribeToHistory((data) => setHistory(data));
 
     return () => {
       unsubStops();
       unsubClients();
+      unsubVehicles();
       unsubHistory();
     };
   }, []);
@@ -319,6 +325,7 @@ function App() {
               <h1 className="text-base sm:text-xl md:text-2xl font-black text-slate-900 dark:text-white tracking-tight leading-tight truncate">
                 {currentTab === 'dashboard' && 'Panel de Control'}
                 {currentTab === 'stops' && 'Planificación de Rutas'}
+                {currentTab === 'vehicles' && 'Flota y Móviles'}
                 {currentTab === 'clients' && 'Clientes y Ubicaciones'}
                 {currentTab === 'history' && 'Historial de Entregas'}
               </h1>
@@ -505,6 +512,7 @@ function App() {
                 <MapView 
                   stops={dayFilteredStops} 
                   clients={clients} 
+                  vehicles={vehicles}
                   activeTab="dashboard" 
                   selectedCoordinates={selectedCoords}
                   selectedDayLabel={selectedDay}
@@ -526,6 +534,7 @@ function App() {
                 <StopList 
                   stops={stops} 
                   clients={clients}
+                  vehicles={vehicles}
                   onSelectStop={handleSelectLocation}
                   selectedDay={selectedDay}
                   onSelectDay={setSelectedDay}
@@ -554,6 +563,7 @@ function App() {
                 <MapView 
                   stops={dayFilteredStops} 
                   clients={clients} 
+                  vehicles={vehicles}
                   activeTab="stops" 
                   selectedCoordinates={selectedCoords}
                   selectedDayLabel={selectedDay}
@@ -568,6 +578,18 @@ function App() {
                 />
               </div>
             </div>
+          </div>
+        )}
+
+        {currentTab === 'vehicles' && (
+          <div className="space-y-6 flex-1 flex flex-col">
+            <VehicleManagement 
+              vehicles={vehicles} 
+              stops={stops} 
+              onSelectVehicleForRoute={() => {
+                setCurrentTab('stops');
+              }}
+            />
           </div>
         )}
 

@@ -22,6 +22,22 @@ export interface Stop {
   deliveryDay: string;
   mapLink?: string;
   completedAt?: number;
+  vehicleId?: string;
+  vehicleName?: string;
+}
+
+export interface Vehicle {
+  id: string;
+  name: string;
+  driverName: string;
+  driverPhone?: string;
+  plate?: string;
+  model?: string;
+  color: string;
+  status: 'available' | 'on_route' | 'maintenance' | 'inactive';
+  capacity?: string;
+  notes?: string;
+  createdAt?: number;
 }
 
 export interface Client {
@@ -43,10 +59,13 @@ export interface RouteHistory {
   stopsSummary: string;
   driverName?: string;
   duration?: string;
+  vehicleId?: string;
+  vehicleName?: string;
 }
 
 // Collection Names
 const STOPS_COLLECTION = 'delivery_stops';
+const VEHICLES_COLLECTION = 'vehicles';
 const CLIENTS_COLLECTION = 'clients';
 const HISTORY_COLLECTION = 'route_history';
 
@@ -79,6 +98,8 @@ export const subscribeToStops = (callback: (stops: Stop[]) => void) => {
         deliveryDay: data.deliveryDay || '',
         mapLink: data.mapLink || '',
         completedAt: data.completedAt ? Number(data.completedAt) : undefined,
+        vehicleId: data.vehicleId || undefined,
+        vehicleName: data.vehicleName || undefined,
       });
     });
     callback(stops);
@@ -103,6 +124,12 @@ export const addStop = async (stop: Omit<Stop, 'id'> & { id?: string }) => {
     };
     if (stop.completedAt !== undefined) {
       data.completedAt = stop.completedAt;
+    }
+    if (stop.vehicleId !== undefined) {
+      data.vehicleId = stop.vehicleId;
+    }
+    if (stop.vehicleName !== undefined) {
+      data.vehicleName = stop.vehicleName;
     }
     await setDoc(doc(db, STOPS_COLLECTION, id), data);
   } catch (error) {
@@ -130,6 +157,8 @@ export const updateStop = async (id: string, updates: Partial<Omit<Stop, 'id'>>)
     if (updates.orderIndex !== undefined) cleanUpdates.orderIndex = Number(updates.orderIndex);
     if (updates.deliveryDay !== undefined) cleanUpdates.deliveryDay = updates.deliveryDay;
     if (updates.mapLink !== undefined) cleanUpdates.mapLink = updates.mapLink;
+    if (updates.vehicleId !== undefined) cleanUpdates.vehicleId = updates.vehicleId;
+    if (updates.vehicleName !== undefined) cleanUpdates.vehicleName = updates.vehicleName;
 
     await updateDoc(docRef, cleanUpdates);
   } catch (error) {
@@ -270,6 +299,90 @@ export const deleteHistory = async (id: string) => {
     await deleteDoc(doc(db, HISTORY_COLLECTION, id));
   } catch (error) {
     console.error("Error deleting history item: ", error);
+    throw error;
+  }
+};
+
+// ---------------- VEHICLES / MÓVILES SERVICES ----------------
+
+export const subscribeToVehicles = (callback: (vehicles: Vehicle[]) => void) => {
+  const q = query(collection(db, VEHICLES_COLLECTION));
+  return onSnapshot(q, (snapshot) => {
+    const vehicles: Vehicle[] = [];
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      vehicles.push({
+        id: doc.id,
+        name: data.name || 'Móvil',
+        driverName: data.driverName || 'Sin Chofer',
+        driverPhone: data.driverPhone || '',
+        plate: data.plate || '',
+        model: data.model || '',
+        color: data.color || '#6366f1',
+        status: data.status || 'available',
+        capacity: data.capacity || '',
+        notes: data.notes || '',
+        createdAt: Number(data.createdAt) || Date.now(),
+      });
+    });
+    // Sort by name or id
+    vehicles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    callback(vehicles);
+  }, (error) => {
+    console.error("Error subscribing to vehicles: ", error);
+  });
+};
+
+export const addVehicle = async (vehicle: Omit<Vehicle, 'id'> & { id?: string }) => {
+  try {
+    const id = vehicle.id || generateNumericId();
+    const data: Record<string, any> = {
+      id,
+      name: vehicle.name.trim(),
+      driverName: vehicle.driverName.trim(),
+      driverPhone: vehicle.driverPhone?.trim() || '',
+      plate: vehicle.plate?.trim().toUpperCase() || '',
+      model: vehicle.model?.trim() || '',
+      color: vehicle.color || '#6366f1',
+      status: vehicle.status || 'available',
+      capacity: vehicle.capacity?.trim() || '',
+      notes: vehicle.notes?.trim() || '',
+      createdAt: vehicle.createdAt || Date.now(),
+    };
+    await setDoc(doc(db, VEHICLES_COLLECTION, id), data);
+  } catch (error) {
+    console.error("Error adding vehicle: ", error);
+    throw error;
+  }
+};
+
+export const updateVehicle = async (id: string, updates: Partial<Omit<Vehicle, 'id'>>) => {
+  try {
+    const docRef = doc(db, VEHICLES_COLLECTION, id);
+    const cleanUpdates: Record<string, any> = {};
+
+    if (updates.name !== undefined) cleanUpdates.name = updates.name.trim();
+    if (updates.driverName !== undefined) cleanUpdates.driverName = updates.driverName.trim();
+    if (updates.driverPhone !== undefined) cleanUpdates.driverPhone = updates.driverPhone.trim();
+    if (updates.plate !== undefined) cleanUpdates.plate = updates.plate.trim().toUpperCase();
+    if (updates.model !== undefined) cleanUpdates.model = updates.model.trim();
+    if (updates.color !== undefined) cleanUpdates.color = updates.color;
+    if (updates.status !== undefined) cleanUpdates.status = updates.status;
+    if (updates.capacity !== undefined) cleanUpdates.capacity = updates.capacity.trim();
+    if (updates.notes !== undefined) cleanUpdates.notes = updates.notes.trim();
+
+    await updateDoc(docRef, cleanUpdates);
+  } catch (error) {
+    console.error("Error updating vehicle: ", error);
+    throw error;
+  }
+};
+
+export const deleteVehicle = async (id: string) => {
+  try {
+    await deleteDoc(doc(db, VEHICLES_COLLECTION, id));
+  } catch (error) {
+    console.error("Error deleting vehicle: ", error);
     throw error;
   }
 };

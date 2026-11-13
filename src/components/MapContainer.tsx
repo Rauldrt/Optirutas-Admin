@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, Circle, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
-import { updateStop, type Stop, type Client } from '../services/firestore';
+import { updateStop, type Stop, type Client, type Vehicle } from '../services/firestore';
 import { calculateRouteDistanceKm, calculateDistanceKm } from '../utils/geo';
 import { 
   Crosshair, Route as RouteIcon, X, MousePointerClick, Send, BoxSelect,
@@ -96,6 +96,7 @@ const SelectVisibleBoundsButton: React.FC<{
 interface MapViewProps {
   stops: Stop[];
   clients: Client[];
+  vehicles?: Vehicle[];
   activeTab: string;
   selectedCoordinates?: [number, number];
   selectedDayLabel?: string;
@@ -118,6 +119,7 @@ interface MapViewProps {
 export const MapView: React.FC<MapViewProps> = ({ 
   stops, 
   clients, 
+  vehicles = [],
   activeTab,
   selectedCoordinates,
   selectedDayLabel,
@@ -414,13 +416,14 @@ export const MapView: React.FC<MapViewProps> = ({
     });
   };
 
-  const createPendingStopIcon = (index: number) => {
+  const createPendingStopIcon = (index: number, vehicleColor?: string) => {
+    const pinColor = vehicleColor || '#f59e0b';
     return L.divIcon({
       className: 'custom-pending-stop-marker',
       html: `
         <div class="relative flex items-center justify-center">
-          <div class="absolute w-7 h-7 bg-amber-500 rounded-full opacity-35 animate-ping"></div>
-          <div class="w-7 h-7 bg-amber-500 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center shadow-lg shadow-amber-500/50 text-white font-extrabold text-xs">
+          <div class="absolute w-7 h-7 rounded-full opacity-35 animate-ping" style="background-color: ${pinColor}"></div>
+          <div class="w-7 h-7 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center shadow-lg text-white font-extrabold text-xs" style="background-color: ${pinColor}; box-shadow: 0 4px 10px ${pinColor}80;">
             ${index}
           </div>
         </div>
@@ -1066,11 +1069,12 @@ export const MapView: React.FC<MapViewProps> = ({
         {/* Render Stops on Map */}
         {activeTab !== 'clients' && sortedStops.map((stop) => {
           const isStopActiveNav = activeNavStop?.id === stop.id;
+          const assignedVehicle = stop.vehicleId ? vehicles.find(v => v.id === stop.vehicleId) : null;
           let markerIcon = stop.completed 
             ? createCompletedStopIcon() 
             : isStopActiveNav 
               ? createActiveNavStopIcon(stop.orderIndex, hasArrived) 
-              : createPendingStopIcon(stop.orderIndex);
+              : createPendingStopIcon(stop.orderIndex, assignedVehicle?.color);
 
           return (
             stop.latitude !== 0 && stop.longitude !== 0 && (
@@ -1089,13 +1093,21 @@ export const MapView: React.FC<MapViewProps> = ({
                           : isStopActiveNav 
                             ? 'bg-blue-600 animate-pulse' 
                             : 'bg-amber-500'
-                      }`}>
+                      }`} style={!stop.completed && !isStopActiveNav && assignedVehicle ? { backgroundColor: assignedVehicle.color } : undefined}>
                         {stop.completed ? 'Completado' : isStopActiveNav ? `Navegando #${stop.orderIndex}` : `Parada ${stop.orderIndex}`}
                       </span>
                       <span className="text-[10px] font-semibold text-slate-500">
                         {stop.deliveryDay}
                       </span>
                     </div>
+
+                    {assignedVehicle && (
+                      <div className="mb-1 flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-[10px] font-extrabold text-slate-700 dark:text-slate-200">
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: assignedVehicle.color }} />
+                        <span>{assignedVehicle.name} ({assignedVehicle.driverName})</span>
+                      </div>
+                    )}
+
                     <h3 className="font-extrabold text-sm mb-1">{stop.name}</h3>
                     <p className="text-xs mb-2"><b>Dirección:</b> {stop.address}</p>
                     <div className="flex flex-wrap items-center justify-between gap-1.5 pt-2 border-t border-slate-200/60">

@@ -3,10 +3,11 @@ import {
   Plus, Edit2, Trash2, ArrowUp, ArrowDown, MapPin, 
   CheckSquare, Square, RefreshCw, X, Archive, Clock,
   Wand2, Share2, Download, Crosshair, Search, Sparkles, Check, Layers, PlusCircle,
-  Calendar, ChevronDown, UserPlus, ArrowLeft, Mail, Phone, Navigation, HardDrive
+  Calendar, ChevronDown, UserPlus, ArrowLeft, Mail, Phone, Navigation, HardDrive,
+  Truck
 } from 'lucide-react';
 import { precacheDayRoutes } from '../services/routing';
-import { addStop, updateStop, deleteStop, addHistory, addClient, type Stop, type Client } from '../services/firestore';
+import { addStop, updateStop, deleteStop, addHistory, addClient, type Stop, type Client, type Vehicle } from '../services/firestore';
 import { 
   calculateDistanceKm, 
   calculateRouteDistanceKm, 
@@ -21,6 +22,7 @@ import {
 interface StopListProps {
   stops: Stop[];
   clients: Client[];
+  vehicles?: Vehicle[];
   onSelectStop: (coords: [number, number]) => void;
   selectedDay?: string;
   onSelectDay?: (day: string) => void;
@@ -72,6 +74,7 @@ interface StopListProps {
 export const StopList: React.FC<StopListProps> = ({ 
   stops, 
   clients,
+  vehicles = [],
   onSelectStop,
   selectedDay: controlledDay,
   onSelectDay,
@@ -100,6 +103,10 @@ export const StopList: React.FC<StopListProps> = ({
 
   // Smart search query for filtering stops
   const [stopSearchQuery, setStopSearchQuery] = useState('');
+
+  // Vehicle filter for stops list ('all' | 'unassigned' | vehicleId)
+  const [selectedVehicleFilter, setSelectedVehicleFilter] = useState<string>('all');
+  const [assignedVehicleId, setAssignedVehicleId] = useState<string>('');
 
   // Smart Route Proposal State
   const [preferredStartStopId, setPreferredStartStopId] = useState<string>('');
@@ -296,13 +303,22 @@ export const StopList: React.FC<StopListProps> = ({
     }
   }, [mapLink]);
 
-  // Filter stops by day first
+  // Filter stops by day and vehicle
   const dayStops = useMemo(() => {
-    const base = selectedDay === 'Todos' 
+    let base = selectedDay === 'Todos' 
       ? stops 
       : stops.filter(stop => stop.deliveryDay.toLowerCase() === selectedDay.toLowerCase());
+
+    if (selectedVehicleFilter !== 'all') {
+      if (selectedVehicleFilter === 'unassigned') {
+        base = base.filter(stop => !stop.vehicleId);
+      } else {
+        base = base.filter(stop => stop.vehicleId === selectedVehicleFilter);
+      }
+    }
+
     return [...base].sort((a, b) => a.orderIndex - b.orderIndex);
-  }, [stops, selectedDay]);
+  }, [stops, selectedDay, selectedVehicleFilter]);
 
   // Apply smart search filter over dayStops
   const sortedStops = useMemo(() => {
@@ -404,6 +420,7 @@ export const StopList: React.FC<StopListProps> = ({
     setLatitude('');
     setLongitude('');
     setOrderIndex(nextOrderIdx.toString());
+    setAssignedVehicleId('');
     setResolveError(null);
     setClientSearch('');
     setIsClientDropdownOpen(false);
@@ -414,6 +431,12 @@ export const StopList: React.FC<StopListProps> = ({
     const activeDay = selectedDay === 'Todos' ? todayName : selectedDay;
     setDeliveryDay(activeDay);
     resetSingleFormFields(dayStops.length + 1);
+    // If filtering by a specific vehicle, pre-select it
+    if (selectedVehicleFilter !== 'all' && selectedVehicleFilter !== 'unassigned') {
+      setAssignedVehicleId(selectedVehicleFilter);
+    } else {
+      setAssignedVehicleId('');
+    }
     setBulkSearch('');
     setBulkSelectedClientIds([]);
     setBulkSubView('list');
@@ -436,9 +459,23 @@ export const StopList: React.FC<StopListProps> = ({
     setLongitude(stop.longitude.toString());
     setOrderIndex(stop.orderIndex.toString());
     setDeliveryDay(stop.deliveryDay);
+    setAssignedVehicleId(stop.vehicleId || '');
     setResolveError(null);
     setSavedToastCount(0);
     setIsModalOpen(true);
+  };
+
+  const handleQuickAssignVehicle = async (stop: Stop, vId: string) => {
+    const v = vehicles.find(item => item.id === vId);
+    try {
+      await updateStop(stop.id, {
+        vehicleId: vId || '',
+        vehicleName: v?.name || '',
+      });
+    } catch (err) {
+      console.error('Error reassigning vehicle to stop:', err);
+      alert('Error al reasignar móvil.');
+    }
   };
 
   const saveSingleStop = async (keepOpenForNext: boolean) => {
@@ -451,6 +488,7 @@ export const StopList: React.FC<StopListProps> = ({
     const lngNum = parseFloat(longitude);
     const currentOrderNum = parseInt(orderIndex) || 1;
     const generatedMapLink = mapLink || `https://www.google.com/maps?q=${latNum},${lngNum}`;
+    const v = vehicles.find(item => item.id === assignedVehicleId);
 
     const stopData = {
       name,
@@ -461,6 +499,8 @@ export const StopList: React.FC<StopListProps> = ({
       orderIndex: currentOrderNum,
       deliveryDay,
       mapLink: generatedMapLink,
+      vehicleId: assignedVehicleId || '',
+      vehicleName: v?.name || '',
     };
 
     try {
@@ -499,6 +539,8 @@ export const StopList: React.FC<StopListProps> = ({
         ? Math.max(...existingInTargetDay.map(s => s.orderIndex)) + 1
         : 1;
 
+      const v = vehicles.find(item => item.id === assignedVehicleId);
+
       for (const item of bulkPreviewStops) {
         await addStop({
           name: item.name,
@@ -509,6 +551,8 @@ export const StopList: React.FC<StopListProps> = ({
           orderIndex: nextOrder++,
           deliveryDay,
           mapLink: item.mapLink,
+          vehicleId: assignedVehicleId || '',
+          vehicleName: v?.name || '',
         });
       }
 
@@ -895,6 +939,61 @@ export const StopList: React.FC<StopListProps> = ({
             </button>
           )}
         </div>
+
+        {/* Vehicle Filter Bar when vehicles exist */}
+        {vehicles.length > 0 && (
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs -mt-1">
+            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1 mr-1 flex-shrink-0">
+              <Truck className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+              <span>Móvil:</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedVehicleFilter('all')}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all cursor-pointer flex-shrink-0 ${
+                selectedVehicleFilter === 'all'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              Todos ({stops.filter(s => selectedDay === 'Todos' || s.deliveryDay.toLowerCase() === selectedDay.toLowerCase()).length})
+            </button>
+            {vehicles.map((v) => {
+              const count = stops.filter(s => 
+                (selectedDay === 'Todos' || s.deliveryDay.toLowerCase() === selectedDay.toLowerCase()) && 
+                s.vehicleId === v.id
+              ).length;
+              const isSelected = selectedVehicleFilter === v.id;
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => setSelectedVehicleFilter(v.id)}
+                  className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 flex-shrink-0 border ${
+                    isSelected
+                      ? 'text-white shadow-sm border-transparent'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-transparent hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                  style={isSelected ? { backgroundColor: v.color } : undefined}
+                >
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: v.color }} />
+                  <span>{v.name} ({count})</span>
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => setSelectedVehicleFilter('unassigned')}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all cursor-pointer flex-shrink-0 ${
+                selectedVehicleFilter === 'unassigned'
+                  ? 'bg-slate-700 text-white shadow-sm'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              Sin Asignar ({stops.filter(s => (selectedDay === 'Todos' || s.deliveryDay.toLowerCase() === selectedDay.toLowerCase()) && !s.vehicleId).length})
+            </button>
+          </div>
+        )}
 
         {/* Subcard Colapsable de Selección de Día */}
         <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-slate-100/50 dark:bg-slate-900/40 overflow-hidden transition-all duration-300">
@@ -1318,6 +1417,25 @@ export const StopList: React.FC<StopListProps> = ({
                             {stop.deliveryDay}
                           </span>
                         )}
+
+                        {/* Assigned Vehicle Badge */}
+                        {stop.vehicleId && (
+                          <span 
+                            className="text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 border"
+                            style={{ 
+                              borderColor: `${vehicles.find(v => v.id === stop.vehicleId)?.color || '#6366f1'}60`,
+                              backgroundColor: `${vehicles.find(v => v.id === stop.vehicleId)?.color || '#6366f1'}15`,
+                              color: vehicles.find(v => v.id === stop.vehicleId)?.color || '#6366f1'
+                            }}
+                            title={`Asignado a: ${stop.vehicleName}`}
+                          >
+                            <span 
+                              className="w-1.5 h-1.5 rounded-full" 
+                              style={{ backgroundColor: vehicles.find(v => v.id === stop.vehicleId)?.color || '#6366f1' }}
+                            />
+                            <span>{stop.vehicleName || 'Móvil'}</span>
+                          </span>
+                        )}
                         
                         {/* Delivery Time and Transit Metrics */}
                         {stop.completed && stop.completedAt && (
@@ -1339,7 +1457,24 @@ export const StopList: React.FC<StopListProps> = ({
                   </div>
 
                   {/* Right: Action Buttons */}
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                    {/* Quick Reassign Vehicle selector */}
+                    {vehicles.length > 0 && (
+                      <select
+                        value={stop.vehicleId || ''}
+                        onChange={(e) => handleQuickAssignVehicle(stop, e.target.value)}
+                        className="text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-lg px-2 py-1 border border-slate-200 dark:border-slate-700 cursor-pointer focus:ring-1 focus:ring-purple-500"
+                        title="Cambiar móvil asignado a esta parada"
+                      >
+                        <option value="">Sin Móvil</option>
+                        {vehicles.map(v => (
+                          <option key={v.id} value={v.id}>
+                            {v.name} ({v.driverName})
+                          </option>
+                        ))}
+                      </select>
+                    )}
+
                     {onStartNavigation && !stop.completed && (
                       <button
                         onClick={() => onStartNavigation(stop)}
@@ -1359,21 +1494,21 @@ export const StopList: React.FC<StopListProps> = ({
 
                     <button
                       onClick={() => onSelectStop([stop.latitude, stop.longitude])}
-                      className="p-2 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                      className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
                       title="Enfocar en mapa"
                     >
                       <MapPin className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => openEditModal(stop)}
-                      className="p-2 text-slate-400 hover:text-amber-500 dark:hover:text-amber-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                      className="p-1.5 text-slate-400 hover:text-amber-500 dark:hover:text-amber-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
                       title="Editar"
                     >
                       <Edit2 className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => handleDelete(stop.id)}
-                      className="p-2 text-slate-400 hover:text-rose-500 dark:hover:text-rose-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                      className="p-1.5 text-slate-400 hover:text-rose-500 dark:hover:text-rose-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
                       title="Eliminar"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -1766,6 +1901,28 @@ export const StopList: React.FC<StopListProps> = ({
                     )}
                   </div>
 
+                  {/* Vehicle Assignment for Bulk Mode */}
+                  {vehicles.length > 0 && (
+                    <div className="bg-slate-100/70 dark:bg-slate-850 p-3 rounded-2xl flex items-center justify-between gap-3 border border-slate-200/50 dark:border-slate-800/50">
+                      <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-200 min-w-0">
+                        <Truck className="w-4 h-4 text-purple-600 dark:text-purple-400 flex-shrink-0" />
+                        <span className="truncate">Asignar paradas a móvil:</span>
+                      </div>
+                      <select
+                        value={assignedVehicleId}
+                        onChange={(e) => setAssignedVehicleId(e.target.value)}
+                        className="bg-white dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-slate-100 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-slate-700 cursor-pointer"
+                      >
+                        <option value="">Sin Asignar</option>
+                        {vehicles.map(v => (
+                          <option key={v.id} value={v.id}>
+                            {v.name} ({v.driverName})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
                   {/* Live Preview of Selected Sequence */}
                   {bulkPreviewStops.length > 0 && (
                     <div className="bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-900/40 p-3 rounded-2xl space-y-1.5">
@@ -2024,6 +2181,28 @@ export const StopList: React.FC<StopListProps> = ({
                       />
                     </div>
                   </div>
+
+                  {/* Vehicle Assignment for Single Stop */}
+                  {vehicles.length > 0 && (
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                        <Truck className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                        <span>Móvil / Vehículo Asignado</span>
+                      </label>
+                      <select
+                        value={assignedVehicleId}
+                        onChange={(e) => setAssignedVehicleId(e.target.value)}
+                        className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100 cursor-pointer"
+                      >
+                        <option value="">Sin Asignar</option>
+                        {vehicles.map(v => (
+                          <option key={v.id} value={v.id}>
+                            {v.name} - {v.driverName} {v.plate ? `(${v.plate})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
 
                 {/* Fixed Modal Footer */}

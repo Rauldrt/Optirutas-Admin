@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, MapPin, Users, History, Sun, Moon, X, Download, Share2 } from 'lucide-react';
+import { LayoutDashboard, MapPin, Truck, Users, History, Sun, Moon, X, Download, Share2 } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 
 interface SidebarProps {
@@ -24,6 +24,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const menuItems = [
     { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard },
     { id: 'stops', name: 'Rutas y Paradas', icon: MapPin },
+    { id: 'vehicles', name: 'Flota y Móviles', icon: Truck },
     { id: 'clients', name: 'Directorio de Clientes', icon: Users },
     { id: 'history', name: 'Historial', icon: History },
   ];
