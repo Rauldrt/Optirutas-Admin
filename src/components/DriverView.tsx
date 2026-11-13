@@ -19,8 +19,7 @@ import {
   Radio, 
   ListOrdered, 
   MessageCircle,
-  ChevronDown,
-  ChevronUp
+  ChevronDown
 } from 'lucide-react';
 
 interface DriverViewProps {
@@ -313,85 +312,107 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
               )}
             </div>
 
-            {/* Action Buttons: Navegar In-App + Ver Lista (Same Row) */}
+            {/* Action Buttons: Navegar In-App + Ver Lista (Same Row with M3 Physics) */}
             <div className="grid grid-cols-2 gap-2 text-xs font-bold">
               {/* In-App Turn-by-Turn Navigation */}
               <button
                 type="button"
                 onClick={() => handleStartNavigation(currentStop)}
-                className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white py-3.5 px-3 rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-blue-600/30 transition-all cursor-pointer"
+                className="m3-surface-interactive bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white py-3.5 px-3 rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-blue-600/30 cursor-pointer"
               >
                 <Navigation className="w-4 h-4" />
                 <span>Navegar In-App</span>
               </button>
 
-              {/* Collapsible Delivery Queue Trigger */}
+              {/* Collapsible Delivery Queue Trigger (M3 Tonal Button with Emphasized Chevron Rotation) */}
               <button
                 type="button"
+                aria-expanded={showFullQueue}
+                aria-label={showFullQueue ? 'Ocultar lista de paradas' : 'Ver lista de paradas'}
                 onClick={() => setShowFullQueue(prev => !prev)}
-                className={`py-3.5 px-3 rounded-2xl flex items-center justify-center gap-1.5 transition-all cursor-pointer border ${
+                className={`m3-surface-interactive py-3.5 px-3 rounded-2xl flex items-center justify-center gap-1.5 cursor-pointer border ${
                   showFullQueue
-                    ? 'bg-purple-600 text-white border-purple-500 shadow-md shadow-purple-600/30'
-                    : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                    ? 'bg-purple-600/90 hover:bg-purple-600 text-white border-purple-500 shadow-md shadow-purple-600/30'
+                    : 'bg-slate-800/90 hover:bg-slate-800 text-slate-200 border-slate-700/80 hover:border-slate-600'
                 }`}
               >
-                <ListOrdered className="w-4 h-4 text-purple-300" />
+                <ListOrdered className="w-4 h-4 text-purple-300 flex-shrink-0" />
                 <span>{showFullQueue ? 'Ocultar Lista' : `Ver Lista (${driverStops.length})`}</span>
-                {showFullQueue ? <ChevronUp className="w-4 h-4 ml-0.5" /> : <ChevronDown className="w-4 h-4 ml-0.5" />}
+                <ChevronDown 
+                  className={`w-4 h-4 m3-icon-physics flex-shrink-0 ${
+                    showFullQueue ? 'rotate-180 text-purple-200' : 'rotate-0 text-slate-400'
+                  }`} 
+                />
               </button>
             </div>
 
-            {/* Collapsible Delivery List inside card */}
-            {showFullQueue && driverStops.length > 0 && (
-              <div className="bg-slate-950/80 border border-slate-800/80 rounded-2xl p-4 space-y-2 animate-fade-in max-h-64 overflow-y-auto">
-                <div className="flex items-center justify-between pb-1.5 border-b border-slate-800 text-xs font-bold text-slate-400">
-                  <span>Todas las paradas ({driverStops.length})</span>
-                  <span className="text-purple-400">{completedCount}/{totalCount} entregadas</span>
-                </div>
-                <div className="divide-y divide-slate-800/60">
-                  {driverStops.map((stop) => (
-                    <div
-                      key={stop.id}
-                      className={`py-2.5 flex items-center justify-between gap-3 ${
-                        stop.completed ? 'opacity-60' : ''
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <span
-                          className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-[11px] flex-shrink-0 ${
-                            stop.completed
-                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                              : currentStop?.id === stop.id
-                                ? 'bg-purple-600 text-white font-black animate-pulse'
-                                : 'bg-slate-800 text-slate-300'
-                          }`}
-                        >
-                          {stop.completed ? '✓' : stop.orderIndex}
+            {/* M3 Expandable Accordion Container (Pure Emphasized Decelerate Physics) */}
+            <div className={`m3-accordion-wrapper ${showFullQueue ? 'open' : ''}`}>
+              <div className="m3-accordion-inner">
+                {driverStops.length > 0 && (
+                  <div className="pt-2">
+                    <div className="bg-slate-950/85 border border-slate-800/80 rounded-2xl p-4 space-y-2.5 shadow-inner">
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-xs font-bold text-slate-400">
+                        <span className="flex items-center gap-1.5">
+                          <ListOrdered className="w-3.5 h-3.5 text-purple-400" />
+                          <span>Entregas de la Hoja de Ruta ({driverStops.length})</span>
                         </span>
-                        <div className="min-w-0">
-                          <p className={`text-xs font-bold truncate ${stop.completed ? 'line-through text-slate-400' : 'text-white'}`}>
-                            {stop.name}
-                          </p>
-                          <p className="text-[10px] text-slate-400 truncate">
-                            {stop.address}
-                          </p>
-                        </div>
+                        <span className="text-purple-300 font-extrabold bg-purple-950/60 px-2 py-0.5 rounded-full border border-purple-800/60 text-[11px]">
+                          {completedCount}/{totalCount} listas
+                        </span>
                       </div>
 
-                      {!stop.completed && (
-                        <button
-                          type="button"
-                          onClick={() => handleStartNavigation(stop)}
-                          className="px-2.5 py-1 rounded-xl bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 border border-blue-500/30 text-[10px] font-bold cursor-pointer flex-shrink-0"
-                        >
-                          Ir
-                        </button>
-                      )}
+                      <div className="divide-y divide-slate-800/60 max-h-64 overflow-y-auto pr-1">
+                        {driverStops.map((stop) => (
+                          <div
+                            key={stop.id}
+                            className={`m3-list-item-interactive py-2.5 px-1.5 rounded-xl flex items-center justify-between gap-3 transition-colors ${
+                              currentStop?.id === stop.id
+                                ? 'bg-purple-950/30'
+                                : 'hover:bg-slate-900/50'
+                            } ${stop.completed ? 'opacity-55' : ''}`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span
+                                className={`w-6 h-6 rounded-full flex items-center justify-center font-black text-[11px] flex-shrink-0 transition-transform ${
+                                  stop.completed
+                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                                    : currentStop?.id === stop.id
+                                      ? 'bg-purple-600 text-white shadow-sm shadow-purple-600/40 scale-105'
+                                      : 'bg-slate-800 text-slate-300'
+                                }`}
+                              >
+                                {stop.completed ? '✓' : stop.orderIndex}
+                              </span>
+                              <div className="min-w-0">
+                                <p className={`text-xs font-bold truncate ${
+                                  stop.completed ? 'line-through text-slate-400' : 'text-slate-100'
+                                }`}>
+                                  {stop.name}
+                                </p>
+                                <p className="text-[10px] text-slate-400 truncate">
+                                  {stop.address}
+                                </p>
+                              </div>
+                            </div>
+
+                            {!stop.completed && (
+                              <button
+                                type="button"
+                                onClick={() => handleStartNavigation(stop)}
+                                className="m3-surface-interactive px-2.5 py-1 rounded-xl bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 border border-blue-500/30 text-[10px] font-bold cursor-pointer flex-shrink-0"
+                              >
+                                Ir
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                )}
               </div>
-            )}
+            </div>
 
             {/* Huge Touch Action Button: Confirm Delivery */}
             <button
