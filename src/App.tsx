@@ -17,7 +17,8 @@ import {
   updateStop
 } from './services/firestore';
 import { getCurrentDayNameEs } from './utils/geo';
-import { Database, PlusCircle, CheckCircle2, MapPin, Menu, Clock, Navigation } from 'lucide-react';
+import { Database, PlusCircle, CheckCircle2, MapPin, Menu, Clock, Navigation, Download } from 'lucide-react';
+import { usePWAInstall } from './hooks/usePWAInstall';
 
 function App() {
   const todayName = getCurrentDayNameEs();
@@ -26,6 +27,9 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // Dynamic default day: starts on today's day of the week (e.g. 'Jueves')
   const [selectedDay, setSelectedDay] = useState<string>(todayName);
+
+  // PWA Installation Hook
+  const { isInstallable, installApp } = usePWAInstall();
   
   // Real-time Firestore State
   const [stops, setStops] = useState<Stop[]>([]);
@@ -280,15 +284,30 @@ function App() {
             </div>
           </div>
           
-          {/* Firestore Connection Badge */}
-          <div className="flex items-center gap-1.5 md:gap-2 bg-emerald-100/60 dark:bg-emerald-950/40 border border-emerald-200/50 dark:border-emerald-900/30 px-3 py-1.5 md:px-4 md:py-2 rounded-2xl flex-shrink-0">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
-            <span className="text-[10px] md:text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
-              Conectado
-            </span>
+          {/* Header Actions: PWA Install + Firestore Connection Badge */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {isInstallable && (
+              <button
+                type="button"
+                onClick={installApp}
+                className="flex items-center gap-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white px-3 py-1.5 md:px-3.5 md:py-2 rounded-2xl text-[11px] font-black shadow-md shadow-purple-500/25 m3-surface-interactive cursor-pointer"
+                title="Instalar Optirutas como App en tu dispositivo"
+              >
+                <Download className="w-3.5 h-3.5 animate-bounce" />
+                <span className="hidden sm:inline">Instalar App</span>
+                <span className="sm:hidden">Instalar</span>
+              </button>
+            )}
+
+            <div className="flex items-center gap-1.5 md:gap-2 bg-emerald-100/60 dark:bg-emerald-950/40 border border-emerald-200/50 dark:border-emerald-900/30 px-3 py-1.5 md:px-4 md:py-2 rounded-2xl flex-shrink-0">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span className="text-[10px] md:text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                Conectado
+              </span>
+            </div>
           </div>
         </header>
 
