@@ -1,6 +1,7 @@
 import React from 'react';
-import { LayoutDashboard, MapPin, Truck, Users, History, Sun, Moon, X, Download, Share2 } from 'lucide-react';
+import { LayoutDashboard, MapPin, Truck, Users, History, Sun, Moon, X, Download } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
+import { PWAInstallModal } from './PWAInstallModal';
 
 interface SidebarProps {
   currentTab: string;
@@ -19,7 +20,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   sidebarOpen,
   setSidebarOpen
 }) => {
-  const { isInstallable, installApp, showIOSPrompt, setShowIOSPrompt } = usePWAInstall();
+  const { isInstallable, installApp, showInstallGuide, setShowInstallGuide, isIOS } = usePWAInstall();
 
   const menuItems = [
     { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard },
@@ -125,41 +126,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </button>
       </div>
 
-      {/* iOS Safari Installation Helper Modal */}
-      {showIOSPrompt && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm m3-scrim-enter">
-          <div className="glass rounded-3xl border shadow-2xl p-6 max-w-sm w-full space-y-4 m3-dialog-enter text-center">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white flex items-center justify-center mx-auto shadow-lg shadow-purple-500/30">
-              <Share2 className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="font-extrabold text-base text-slate-900 dark:text-white">
-                Instalar en iPhone / iPad
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Para tener Optirutas como App en tu pantalla de inicio:
-              </p>
-            </div>
-            <div className="bg-slate-100 dark:bg-slate-800/80 rounded-2xl p-3.5 text-xs text-left space-y-2 text-slate-700 dark:text-slate-200 font-semibold">
-              <p className="flex items-center gap-2">
-                <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] font-black flex items-center justify-center">1</span>
-                <span>Toca el botón <b>Compartir</b> (icono con flecha hacia arriba) en Safari.</span>
-              </p>
-              <p className="flex items-center gap-2">
-                <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] font-black flex items-center justify-center">2</span>
-                <span>Desliza hacia abajo y elige <b>"Agregar a pantalla de inicio"</b>.</span>
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowIOSPrompt(false)}
-              className="w-full py-2.5 rounded-xl bg-purple-600 text-white font-black text-xs shadow-md cursor-pointer m3-surface-interactive"
-            >
-              Entendido
-            </button>
-          </div>
-        </div>
-      )}
+      {/* PWA Installation Helper Modal */}
+      <PWAInstallModal 
+        isOpen={showInstallGuide} 
+        onClose={() => setShowInstallGuide(false)} 
+        isIOS={isIOS} 
+      />
     </aside>
   );
 };

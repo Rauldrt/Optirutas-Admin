@@ -19,8 +19,11 @@ import {
   Radio, 
   ListOrdered, 
   MessageCircle,
-  ChevronDown
+  ChevronDown,
+  Download
 } from 'lucide-react';
+import { usePWAInstall } from '../hooks/usePWAInstall';
+import { PWAInstallModal } from './PWAInstallModal';
 
 interface DriverViewProps {
   vehicle: Vehicle;
@@ -34,6 +37,9 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
   const [activeNavStop, setActiveNavStop] = useState<Stop | null>(null);
   const [showFullQueue, setShowFullQueue] = useState<boolean>(false);
   const lastTelemetrySendRef = useRef<number>(0);
+
+  // PWA Install Hook for Driver
+  const { isInstallable, installApp, showInstallGuide, setShowInstallGuide, isIOS } = usePWAInstall();
 
   // GPS tracking hook
   const {
@@ -238,6 +244,18 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
             <Radio className={`w-3.5 h-3.5 ${isOnDuty ? 'text-emerald-400 animate-pulse' : 'text-slate-500'}`} />
             <span>{isOnDuty ? 'Online' : 'Offline'}</span>
           </button>
+
+          {/* PWA Install Button for Driver */}
+          {isInstallable && (
+            <button
+              type="button"
+              onClick={installApp}
+              className="p-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 transition-colors cursor-pointer"
+              title="Instalar Optirutas como App en el dispositivo"
+            >
+              <Download className="w-4 h-4" />
+            </button>
+          )}
 
           {/* Logout Button */}
           <button
@@ -469,6 +487,13 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
           />
         </div>
       </main>
+
+      {/* PWA Installation Helper Modal */}
+      <PWAInstallModal 
+        isOpen={showInstallGuide} 
+        onClose={() => setShowInstallGuide(false)} 
+        isIOS={isIOS} 
+      />
     </div>
   );
 };

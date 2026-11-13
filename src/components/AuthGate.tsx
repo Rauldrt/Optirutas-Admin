@@ -3,7 +3,7 @@ import type { Vehicle } from '../services/firestore';
 import { 
   Truck, ShieldCheck, KeyRound, Lock, ArrowRight, UserCheck, 
   AlertCircle, Compass, Mail, Eye, EyeOff, CheckCircle2, UserPlus,
-  ArrowLeft, ShieldAlert
+  ArrowLeft, ShieldAlert, Download
 } from 'lucide-react';
 import { 
   signInAdmin, 
@@ -13,6 +13,8 @@ import {
   SESSION_STORAGE_KEY, 
   verifyAdminPin 
 } from '../services/auth';
+import { usePWAInstall } from '../hooks/usePWAInstall';
+import { PWAInstallModal } from './PWAInstallModal';
 
 export interface UserSession {
   role: 'admin' | 'driver';
@@ -47,6 +49,9 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
   const [adminError, setAdminError] = useState<string | null>(null);
   const [adminSuccess, setAdminSuccess] = useState<string | null>(null);
   const [isAdminLoading, setIsAdminLoading] = useState<boolean>(false);
+
+  // PWA Installation Hook
+  const { isInstallable, installApp, showInstallGuide, setShowInstallGuide, isIOS } = usePWAInstall();
 
   // Set default selected vehicle when vehicles load
   useEffect(() => {
@@ -244,6 +249,35 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
             Sistema Inteligente de Gestión y Navegación Logística
           </p>
         </div>
+
+        {/* PWA Install Banner */}
+        {isInstallable && (
+          <div className="bg-gradient-to-r from-purple-600/30 via-indigo-600/25 to-teal-500/20 border border-purple-500/40 rounded-3xl p-3.5 backdrop-blur-xl shadow-xl flex items-center justify-between gap-3 animate-fade-in">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white flex items-center justify-center flex-shrink-0 shadow-lg shadow-purple-500/30">
+                <Download className="w-5 h-5 animate-bounce" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-black text-white truncate flex items-center gap-1.5">
+                  <span>Instalar Optirutas</span>
+                  <span className="text-[9px] bg-purple-500/40 text-purple-200 border border-purple-400/30 px-1.5 py-0.5 rounded-full font-black uppercase">
+                    App
+                  </span>
+                </p>
+                <p className="text-[11px] text-slate-300 truncate">
+                  Instala el acceso directo en tu celular o PC
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={installApp}
+              className="px-4 py-2 rounded-2xl bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-400 hover:to-indigo-400 text-white font-black text-xs shadow-md shadow-purple-600/30 transition-all cursor-pointer flex-shrink-0 active:scale-95"
+            >
+              Instalar
+            </button>
+          </div>
+        )}
 
         {/* Main Card */}
         <div className="bg-slate-900/80 backdrop-blur-xl border border-slate-800/80 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
@@ -669,10 +703,29 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
           )}
         </div>
 
-        {/* Footer info */}
-        <p className="text-center text-[11px] text-slate-500 font-medium">
-          Optirutas Web PWA • Modo Offline y Sincronización en la Nube
-        </p>
+        {/* Footer info & Install link */}
+        <div className="text-center space-y-1.5">
+          {isInstallable && (
+            <button
+              type="button"
+              onClick={installApp}
+              className="text-xs font-bold text-purple-400 hover:text-purple-300 flex items-center justify-center gap-1.5 mx-auto hover:underline cursor-pointer transition-colors"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Instalar Optirutas en este dispositivo</span>
+            </button>
+          )}
+          <p className="text-[11px] text-slate-500 font-medium">
+            Optirutas Web PWA • Modo Offline y Sincronización en la Nube
+          </p>
+        </div>
+
+        {/* PWA Installation Helper Modal */}
+        <PWAInstallModal 
+          isOpen={showInstallGuide} 
+          onClose={() => setShowInstallGuide(false)} 
+          isIOS={isIOS} 
+        />
       </div>
     </div>
   );

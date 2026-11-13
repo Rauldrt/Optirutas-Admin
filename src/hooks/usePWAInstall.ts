@@ -1,14 +1,24 @@
 import { useState, useEffect, useCallback } from 'react';
 
+// Module-level variable to capture beforeinstallprompt as soon as script evaluates,
+// ensuring it is never missed before React components mount.
+let globalDeferredPrompt: any = null;
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', (e: Event) => {
+    e.preventDefault();
+    globalDeferredPrompt = e;
+  });
+}
+
 export function usePWAInstall() {
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [isInstallable, setIsInstallable] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(globalDeferredPrompt);
   const [isInstalled, setIsInstalled] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
-  const [showIOSPrompt, setShowIOSPrompt] = useState(false);
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
 
   useEffect(() => {
-    // 1. Detect if already installed / running standalone
+    // 1. Detect if running standalone (already installed as PWA)
     const isStandalone = 
       window.matchMedia('(display-mode: standalone)').matches ||
       (navigator as any).standalone === true ||
@@ -16,26 +26,26 @@ export function usePWAInstall() {
 
     setIsInstalled(isStandalone);
 
-    // 2. Detect iOS device
+    // 2. Detect iOS Safari
     const userAgent = window.navigator.userAgent.toLowerCase();
     const isAppleDevice = /iphone|ipad|ipod/.test(userAgent) && !(window as any).MSStream;
     setIsIOS(isAppleDevice);
 
-    if (isAppleDevice && !isStandalone) {
-      setIsInstallable(true);
+    if (globalDeferredPrompt) {
+      setDeferredPrompt(globalDeferredPrompt);
     }
 
-    // 3. Listen for Android / Chrome / Edge install prompt event
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
+      globalDeferredPrompt = e;
       setDeferredPrompt(e);
-      setIsInstallable(true);
     };
 
     const handleAppInstalled = () => {
       setIsInstalled(true);
-      setIsInstallable(false);
+      globalDeferredPrompt = null;
       setDeferredPrompt(null);
+      setShowInstallGuide(false);
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
@@ -48,34 +58,40 @@ export function usePWAInstall() {
   }, []);
 
   const installApp = useCallback(async () => {
+    // On iOS Safari, native beforeinstallprompt does not exist; show manual guide
     if (isIOS) {
-      setShowIOSPrompt(true);
+      setShowInstallGuide(true);
       return;
     }
 
-    if (!deferredPrompt) {
-      return;
-    }
-
-    try {
-      deferredPrompt.prompt();
-      const choiceResult = await deferredPrompt.userChoice;
-      if (choiceResult.outcome === 'accepted') {
-        setIsInstalled(true);
-        setIsInstallable(false);
+    const promptEvent = deferredPrompt || globalDeferredPrompt;
+    if (promptEvent) {
+      try {
+        promptEvent.prompt();
+        const choiceResult = await promptEvent.userChoice;
+        if (choiceResult?.outcome === 'accepted') {
+          setIsInstalled(true);
+        }
+        globalDeferredPrompt = null;
+        setDeferredPrompt(null);
+        return;
+      } catch (err) {
+        console.warn('PWA install prompt error:', err);
       }
-      setDeferredPrompt(null);
-    } catch (err) {
-      console.warn('PWA install prompt error:', err);
     }
+
+    // Fallback: if browser hasn't fired or blocks beforeinstallprompt, show the guide
+    setShowInstallGuide(true);
   }, [deferredPrompt, isIOS]);
 
   return {
-    isInstallable: isInstallable && !isInstalled,
+    isInstallable: !isInstalled,
     isInstalled,
     isIOS,
-    showIOSPrompt,
-    setShowIOSPrompt,
+    showIOSPrompt: showInstallGuide,
+    setShowIOSPrompt: setShowInstallGuide,
+    showInstallGuide,
+    setShowInstallGuide,
     installApp
   };
 }
