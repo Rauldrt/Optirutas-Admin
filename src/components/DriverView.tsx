@@ -3,6 +3,7 @@ import {
   updateStop, 
   updateVehicleTelemetry, 
   updateVehicle, 
+  addHistory,
   type Vehicle, 
   type Stop 
 } from '../services/firestore';
@@ -18,7 +19,8 @@ import {
   LogOut, 
   Radio, 
   ListOrdered, 
-  Gauge
+  Gauge,
+  MessageCircle
 } from 'lucide-react';
 
 interface DriverViewProps {
@@ -140,6 +142,59 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
 
   const handleEndNavigation = () => {
     setActiveNavStop(null);
+  };
+
+  const [isClosingShift, setIsClosingShift] = useState(false);
+
+  const handleShiftClosure = async () => {
+    const completed = driverStops.filter(s => s.completed);
+    const pending = driverStops.filter(s => !s.completed);
+    const summaryText = completed.map(s => s.name).join(', ') || 'Sin entregas completadas';
+
+    if (!window.confirm(`¿Deseas cerrar la jornada de hoy (${todayName}) y generar el reporte de ${completed.length} entrega(s)?`)) {
+      return;
+    }
+
+    setIsClosingShift(true);
+    try {
+      // 1. Save to Firestore RouteHistory
+      await addHistory({
+        dateMillis: Date.now(),
+        day: todayName,
+        stopsCount: completed.length,
+        stopsSummary: summaryText,
+        driverName: vehicle.driverName,
+        vehicleId: vehicle.id,
+        vehicleName: vehicle.name,
+        duration: 'Jornada Chofer Finalizada',
+      });
+
+      // 2. Format WhatsApp report
+      const msg = [
+        `📋 *Reporte de Cierre de Jornada - Optirutas*`,
+        `🚚 *Móvil:* ${vehicle.name} ${vehicle.plate ? `(${vehicle.plate})` : ''}`,
+        `👤 *Chofer:* ${vehicle.driverName}`,
+        `📅 *Fecha:* ${todayName}, ${new Date().toLocaleDateString('es-ES')}`,
+        `✅ *Entregas Realizadas:* ${completed.length} de ${driverStops.length} (${progressPercent}%)`,
+        pending.length > 0 
+          ? `⚠️ *Pendientes:* ${pending.map(s => s.name).join(', ')}` 
+          : `🎉 *Estado:* ¡Todas las entregas completadas con éxito!`,
+        `⏱️ *Hora:* ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+      ].join('\n');
+
+      // 3. Stop GPS and update status
+      setIsOnDuty(false);
+      await updateVehicle(vehicle.id, { status: 'available' });
+
+      // 4. Open WhatsApp
+      window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+      alert('✅ Jornada cerrada con éxito y archivada en el historial. Se abrió WhatsApp para enviar el reporte.');
+    } catch (err) {
+      console.error('Error cerrando jornada:', err);
+      alert('Error al cerrar jornada.');
+    } finally {
+      setIsClosingShift(false);
+    }
   };
 
   return (
@@ -335,6 +390,20 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
                 ? `Has completado exitosamente las ${totalCount} paradas programadas para este móvil.`
                 : `No tienes clientes o entregas cargadas para ${todayName}. Consulta con administración o disfruta tu jornada.`}
             </p>
+
+            {totalCount > 0 && (
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={handleShiftClosure}
+                  disabled={isClosingShift}
+                  className="inline-flex items-center gap-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white px-6 py-3.5 rounded-2xl text-sm font-black shadow-xl shadow-emerald-600/30 transition-all cursor-pointer active:scale-98 disabled:opacity-50"
+                >
+                  <MessageCircle className="w-5 h-5" />
+                  <span>{isClosingShift ? 'Archivando...' : 'Archivar y Enviar Reporte por WhatsApp'}</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
 

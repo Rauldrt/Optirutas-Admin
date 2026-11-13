@@ -277,6 +277,8 @@ export const subscribeToHistory = (callback: (history: RouteHistory[]) => void) 
         stopsSummary: data.stopsSummary || '',
         driverName: data.driverName || '',
         duration: data.duration || '',
+        vehicleId: data.vehicleId || '',
+        vehicleName: data.vehicleName || '',
       });
     });
     callback(history);
@@ -296,6 +298,8 @@ export const addHistory = async (historyItem: Omit<RouteHistory, 'id'> & { id?: 
       stopsSummary: historyItem.stopsSummary,
       driverName: historyItem.driverName || 'Repartidor',
       duration: historyItem.duration || 'N/A',
+      vehicleId: historyItem.vehicleId || '',
+      vehicleName: historyItem.vehicleName || '',
     };
     await setDoc(doc(db, HISTORY_COLLECTION, id), data);
   } catch (error) {

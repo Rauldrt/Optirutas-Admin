@@ -474,7 +474,12 @@ function App() {
         {currentTab === 'dashboard' && (
           <div className="space-y-6 flex-1 flex flex-col">
             {/* Stats Dashboard */}
-            <StatsGrid stops={dayFilteredStops} clients={clients} />
+            <StatsGrid 
+              stops={dayFilteredStops} 
+              clients={clients} 
+              vehicles={vehicles}
+              selectedDay={selectedDay}
+            />
 
             {/* Quick Actions and Map Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-[450px]">
@@ -728,6 +733,7 @@ function App() {
               history={history}
               clients={clients}
               stops={stops}
+              vehicles={vehicles}
               onSwitchToStopsTab={(targetDay) => {
                 setSelectedDay(targetDay);
                 setCurrentTab('stops');
