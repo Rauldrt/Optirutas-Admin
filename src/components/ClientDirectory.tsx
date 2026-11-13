@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Plus, Edit2, Trash2, MapPin, Search, Mail, Phone, ExternalLink, X, 
-  Send, CheckSquare, Square, Crosshair, Wand2, Truck
+  Send, CheckSquare, Square, Crosshair, Wand2, Truck,
+  Zap, MessageCircle, Sparkles, Clipboard, CheckCircle2
 } from 'lucide-react';
 import { addClient, updateClient, deleteClient, addStop, type Client, type Stop, type Vehicle } from '../services/firestore';
 import { 
   extractCoords, 
   resolveMapLinkCoords, 
+  reverseGeocodeCoords,
+  extractPhoneFromText,
   computeOptimizedStopOrder, 
   calculateSequenceDistanceKm,
   getCurrentDayNameEs,
@@ -101,7 +104,162 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
   const [isResolving, setIsResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
 
+  // Quick Add by Link / WhatsApp State
+  const [isQuickAddModalOpen, setIsQuickAddModalOpen] = useState(false);
+  const [quickPastedText, setQuickPastedText] = useState('');
+  const [quickName, setQuickName] = useState('');
+  const [quickAddress, setQuickAddress] = useState('');
+  const [quickPhone, setQuickPhone] = useState('');
+  const [quickCoords, setQuickCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [quickMapLink, setQuickMapLink] = useState('');
+  const [isQuickResolving, setIsQuickResolving] = useState(false);
+  const [quickResolveError, setQuickResolveError] = useState<string | null>(null);
+  const [quickDeliveryDay, setQuickDeliveryDay] = useState(todayName);
+  const [quickVehicleId, setQuickVehicleId] = useState<string>('');
+  const [isQuickSaving, setIsQuickSaving] = useState(false);
+  const [sendToRouteImmediately, setSendToRouteImmediately] = useState(true);
+
   const daysOfWeek = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+
+  const openQuickAddModal = () => {
+    setQuickPastedText('');
+    setQuickName('');
+    setQuickAddress('');
+    setQuickPhone('');
+    setQuickCoords(null);
+    setQuickMapLink('');
+    setQuickResolveError(null);
+    setQuickDeliveryDay(todayName);
+    setQuickVehicleId(vehicles.length > 0 ? vehicles[0].id : '');
+    setSendToRouteImmediately(true);
+    setIsQuickAddModalOpen(true);
+  };
+
+  const processPastedLocationText = async (rawText: string) => {
+    setQuickPastedText(rawText);
+    if (!rawText.trim()) {
+      setQuickCoords(null);
+      setQuickResolveError(null);
+      return;
+    }
+
+    setIsQuickResolving(true);
+    setQuickResolveError(null);
+
+    try {
+      // 1. Detect Phone Number from text
+      const detectedPhone = extractPhoneFromText(rawText);
+      if (detectedPhone && !quickPhone) {
+        setQuickPhone(detectedPhone);
+      }
+
+      // 2. Resolve Coordinates from Link or Raw Numbers
+      const coords = await resolveMapLinkCoords(rawText);
+
+      if (coords) {
+        setQuickCoords(coords);
+        const mapUrl = `https://www.google.com/maps?q=${coords.lat},${coords.lng}`;
+        setQuickMapLink(mapUrl);
+
+        // 3. Reverse Geocode for Street, Neighborhood, Town and Place Name
+        const geoInfo = await reverseGeocodeCoords(coords.lat, coords.lng);
+        if (geoInfo) {
+          if (!quickAddress || quickAddress === 'Ubicación sin calle nombrada') {
+            setQuickAddress(geoInfo.formattedAddress);
+          }
+          if (geoInfo.placeName && !quickName) {
+            setQuickName(geoInfo.placeName);
+          }
+        }
+      } else {
+        setQuickResolveError('No se encontró un enlace de Google Maps o coordenadas válidas en el texto.');
+      }
+    } catch (err) {
+      console.error(err);
+      setQuickResolveError('Error al procesar la ubicación.');
+    } finally {
+      setIsQuickResolving(false);
+    }
+  };
+
+  const handlePasteFromClipboard = async () => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+          processPastedLocationText(text);
+        }
+      } else {
+        alert('Por favor pega el enlace directamente en el campo de texto.');
+      }
+    } catch (err) {
+      alert('Por favor pega el enlace directamente en el campo de texto.');
+    }
+  };
+
+  const handleQuickAddSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickName.trim()) {
+      alert('Por favor ingresa un nombre para el cliente.');
+      return;
+    }
+    if (!quickCoords) {
+      alert('No se detectaron coordenadas válidas.');
+      return;
+    }
+
+    setIsQuickSaving(true);
+    try {
+      await addClient({
+        name: quickName.trim(),
+        address: quickAddress.trim() || 'Sin dirección especificada',
+        latitude: quickCoords.lat,
+        longitude: quickCoords.lng,
+        mapLink: quickMapLink || `https://www.google.com/maps?q=${quickCoords.lat},${quickCoords.lng}`,
+        phone: quickPhone.trim(),
+        email: '',
+      });
+
+      // If user selected "Guardar y Cargar a Ruta"
+      if (sendToRouteImmediately) {
+        const existingForDay = stops.filter(
+          s => s.deliveryDay.toLowerCase() === quickDeliveryDay.toLowerCase()
+        );
+        const nextOrder = existingForDay.length > 0
+          ? Math.max(...existingForDay.map(s => s.orderIndex)) + 1
+          : 1;
+
+        const assignedVehicle = vehicles.find(v => v.id === quickVehicleId);
+
+        await addStop({
+          name: quickName.trim(),
+          address: quickAddress.trim() || 'Sin dirección',
+          latitude: quickCoords.lat,
+          longitude: quickCoords.lng,
+          completed: false,
+          orderIndex: nextOrder,
+          deliveryDay: quickDeliveryDay,
+          vehicleId: assignedVehicle?.id || undefined,
+          vehicleName: assignedVehicle?.name || undefined,
+          mapLink: quickMapLink,
+        });
+
+        alert(`✅ ¡Cliente "${quickName}" registrado y agregado como Parada #${nextOrder} para el día ${quickDeliveryDay}!`);
+        if (onSwitchToStopsDay) {
+          onSwitchToStopsDay(quickDeliveryDay);
+        }
+      } else {
+        alert(`✅ ¡Cliente "${quickName}" guardado en el directorio con éxito!`);
+      }
+
+      setIsQuickAddModalOpen(false);
+    } catch (err) {
+      console.error(err);
+      alert('Error al guardar el cliente.');
+    } finally {
+      setIsQuickSaving(false);
+    }
+  };
 
   // Restore modal when returning from Map Pick mode
   useEffect(() => {
@@ -133,6 +291,13 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
       if (parsedCoords) {
         setLatitude(parsedCoords.lat);
         setLongitude(parsedCoords.lng);
+        // Auto-detect and populate street & neighborhood if address field is blank
+        if (!address.trim()) {
+          const geoInfo = await reverseGeocodeCoords(parsedCoords.lat, parsedCoords.lng);
+          if (geoInfo?.formattedAddress) {
+            setAddress(geoInfo.formattedAddress);
+          }
+        }
       } else {
         setResolveError('No se pudieron extraer coordenadas del enlace acortado.');
         setLatitude(null);
@@ -365,14 +530,29 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
             )}
           </div>
 
-          {/* Add Client Button */}
-          <button
-            onClick={openAddModal}
-            className="w-full md:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-5 py-2.5 rounded-2xl text-xs font-bold hover:opacity-95 shadow-lg shadow-purple-500/25 transition-all cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Registrar Cliente</span>
-          </button>
+          {/* Action Buttons: Quick Add by Link / WhatsApp + Manual Registration */}
+          <div className="flex items-center gap-2 w-full md:w-auto">
+            {/* Quick Add by Link / WhatsApp Button */}
+            <button
+              type="button"
+              onClick={openQuickAddModal}
+              className="flex-1 md:flex-none flex items-center justify-center gap-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white px-4 py-2.5 rounded-2xl text-xs font-black shadow-lg shadow-emerald-500/25 transition-all cursor-pointer m3-surface-interactive"
+              title="Pegar mensaje de WhatsApp o enlace de Google Maps para alta automática"
+            >
+              <Zap className="w-4 h-4 text-emerald-200 fill-emerald-200" />
+              <span>Alta por Link</span>
+            </button>
+
+            {/* Manual Add Client Button */}
+            <button
+              type="button"
+              onClick={openAddModal}
+              className="flex-1 md:flex-none flex items-center justify-center gap-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white px-4 py-2.5 rounded-2xl text-xs font-black shadow-lg shadow-purple-500/25 transition-all cursor-pointer m3-surface-interactive"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Manual</span>
+            </button>
+          </div>
         </div>
 
         {/* Tip for Map Selection */}
@@ -786,15 +966,265 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-5 py-3 rounded-2xl text-sm font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  className="px-5 py-3 rounded-2xl text-sm font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-6 py-3 rounded-2xl text-sm font-bold hover:opacity-95 shadow-lg shadow-purple-500/25 transition-all"
+                  className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-6 py-3 rounded-2xl text-sm font-bold hover:opacity-95 shadow-lg shadow-purple-500/25 transition-all cursor-pointer"
                 >
                   Guardar Cliente
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Quick Add Client by Link / WhatsApp */}
+      {isQuickAddModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-lg w-full max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-5 sm:p-6 border-b border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-transparent">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center flex-shrink-0">
+                  <Zap className="w-5 h-5 fill-emerald-500" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base sm:text-lg text-slate-900 dark:text-white flex items-center gap-2">
+                    Alta Rápida por Link o WhatsApp
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Pega el enlace o mensaje compartido por el cliente
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsQuickAddModalOpen(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleQuickAddSubmit} className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
+              {/* Textarea for pasted text / link */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
+                    <MessageCircle className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>Pegar Link o Mensaje Completo</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handlePasteFromClipboard}
+                    className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                  >
+                    <Clipboard className="w-3 h-3" />
+                    <span>Pegar del Portapapeles</span>
+                  </button>
+                </div>
+                <div className="relative">
+                  <textarea
+                    rows={3}
+                    placeholder="Pega aquí el enlace de Google Maps (maps.app.goo.gl/...) o el mensaje de WhatsApp..."
+                    value={quickPastedText}
+                    onChange={(e) => processPastedLocationText(e.target.value)}
+                    className="w-full bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl p-3 text-xs sm:text-sm font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none text-slate-800 dark:text-slate-100 placeholder:text-slate-400"
+                  />
+                  {isQuickResolving && (
+                    <div className="absolute right-3 bottom-3 flex items-center gap-1.5 bg-emerald-500/10 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 px-2.5 py-1 rounded-xl text-[11px] font-bold">
+                      <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-emerald-500 border-t-transparent"></div>
+                      <span>Analizando...</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Status: Detected or Error */}
+                {quickResolveError && (
+                  <p className="text-xs text-rose-500 font-bold mt-1.5 flex items-center gap-1">
+                    <span>⚠️ {quickResolveError}</span>
+                  </p>
+                )}
+
+                {quickCoords && (
+                  <div className="mt-2.5 p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300 flex items-start justify-between gap-2 text-xs">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5 font-black text-emerald-700 dark:text-emerald-300">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                        <span>¡Ubicación detectada correctamente!</span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                        Coords: <strong className="font-mono">{quickCoords.lat.toFixed(6)}, {quickCoords.lng.toFixed(6)}</strong>
+                      </p>
+                    </div>
+                    {quickMapLink && (
+                      <a
+                        href={quickMapLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 flex-shrink-0 bg-white/70 dark:bg-slate-800 px-2 py-1 rounded-lg border border-emerald-500/20"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        <span>Ver Mapa</span>
+                      </a>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Editable client data auto-extracted */}
+              <div className="pt-2 border-t border-slate-200/50 dark:border-slate-800/50 space-y-3">
+                <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-500" />
+                  <span>Datos del Cliente</span>
+                </div>
+
+                {/* Client Name (Required) */}
+                <div>
+                  <label className="text-xs font-bold text-slate-600 dark:text-slate-400 mb-1 block">
+                    Nombre o Comercio <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej: Hermes / Kiosco San Martín"
+                    value={quickName}
+                    onChange={(e) => setQuickName(e.target.value)}
+                    className="w-full bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-emerald-500 focus:outline-none text-slate-800 dark:text-slate-100"
+                  />
+                </div>
+
+                {/* Address & Neighborhood */}
+                <div>
+                  <label className="text-xs font-bold text-slate-600 dark:text-slate-400 mb-1 block">
+                    Dirección / Barrio (Auto-detectado por GPS)
+                  </label>
+                  <div className="relative">
+                    <MapPin className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                    <input
+                      type="text"
+                      placeholder="Ej: Barrio Puerto, Calle 5"
+                      value={quickAddress}
+                      onChange={(e) => setQuickAddress(e.target.value)}
+                      className="w-full bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-4 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-emerald-500 focus:outline-none text-slate-800 dark:text-slate-100"
+                    />
+                  </div>
+                </div>
+
+                {/* Phone */}
+                <div>
+                  <label className="text-xs font-bold text-slate-600 dark:text-slate-400 mb-1 block">
+                    Teléfono (Opcional)
+                  </label>
+                  <div className="relative">
+                    <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                    <input
+                      type="text"
+                      placeholder="Ej: +54 9 3757 123456"
+                      value={quickPhone}
+                      onChange={(e) => setQuickPhone(e.target.value)}
+                      className="w-full bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-4 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-emerald-500 focus:outline-none text-slate-800 dark:text-slate-100"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Direct Route Assignment Box */}
+              <div className="p-4 rounded-2xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border border-indigo-500/20 space-y-3">
+                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={sendToRouteImmediately}
+                    onChange={(e) => setSendToRouteImmediately(e.target.checked)}
+                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 focus:ring-offset-0 border-slate-300 dark:border-slate-600 cursor-pointer"
+                  />
+                  <div className="text-xs font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <Truck className="w-4 h-4 text-indigo-500" />
+                    <span>Cargar de inmediato a la ruta de entrega</span>
+                  </div>
+                </label>
+
+                {sendToRouteImmediately && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 border-t border-indigo-500/15">
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1 block">
+                        Día de Entrega
+                      </label>
+                      <select
+                        value={quickDeliveryDay}
+                        onChange={(e) => setQuickDeliveryDay(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer"
+                      >
+                        {daysOfWeek.map((day) => (
+                          <option key={day} value={day}>
+                            {day} {day.toLowerCase() === todayName.toLowerCase() ? '(Hoy)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1 block">
+                        Móvil / Vehículo Asignado
+                      </label>
+                      <select
+                        value={quickVehicleId}
+                        onChange={(e) => setQuickVehicleId(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer"
+                      >
+                        <option value="">Sin asignar / General</option>
+                        {vehicles.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            🚚 {v.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200/50 dark:border-slate-800/50">
+                <button
+                  type="button"
+                  onClick={() => setIsQuickAddModalOpen(false)}
+                  className="px-4 py-2.5 rounded-2xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isQuickSaving || !quickCoords || !quickName.trim()}
+                  className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl text-xs font-black text-white shadow-lg transition-all cursor-pointer ${
+                    isQuickSaving || !quickCoords || !quickName.trim()
+                      ? 'opacity-50 cursor-not-allowed bg-slate-500'
+                      : sendToRouteImmediately
+                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-emerald-500/25'
+                      : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-purple-500/25'
+                  }`}
+                >
+                  {isQuickSaving ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                      <span>Guardando...</span>
+                    </>
+                  ) : sendToRouteImmediately ? (
+                    <>
+                      <Zap className="w-4 h-4 fill-white" />
+                      <span>Guardar y Cargar a Ruta</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Guardar Cliente</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>

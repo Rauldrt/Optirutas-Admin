@@ -108,44 +108,166 @@ export const smartSearchMatch = (
 };
 
 /**
- * Extract coordinates from a Google Maps URL (standard or query format)
+ * Extract phone number from text if present
  */
-export const extractCoords = (url: string): { lat: number; lng: number } | null => {
-  if (!url) return null;
-  const atMatch = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-  if (atMatch) {
-    return { lat: parseFloat(atMatch[1]), lng: parseFloat(atMatch[2]) };
-  }
-  const queryMatch = url.match(/[?&](q|query|ll)=(-?\d+\.\d+),(-?\d+\.\d+)/);
-  if (queryMatch) {
-    return { lat: parseFloat(queryMatch[2]), lng: parseFloat(queryMatch[3]) };
-  }
-  const placeMatch = url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
-  if (placeMatch) {
-    return { lat: parseFloat(placeMatch[1]), lng: parseFloat(placeMatch[2]) };
+export const extractPhoneFromText = (text: string): string | null => {
+  if (!text) return null;
+  // Match patterns like +54 9 3757 123456, (03757) 15-4433, 3757445566, etc.
+  const phoneMatch = text.match(/(?:\+?54\s?9?\s?)?(?:\(?\d{2,4}\)?[\s.-]?)?\d{3,4}[\s.-]?\d{4}/);
+  if (phoneMatch) {
+    const clean = phoneMatch[0].trim();
+    // Only accept if at least 7 digits
+    if (clean.replace(/\D/g, '').length >= 7) {
+      return clean;
+    }
   }
   return null;
 };
 
 /**
- * Resolve a short Google Maps URL or extract coordinates directly
+ * Extract coordinates from a Google Maps URL or raw text coordinates
+ */
+export const extractCoords = (urlOrText: string): { lat: number; lng: number } | null => {
+  if (!urlOrText) return null;
+
+  // 1. URL pattern: @lat,lng
+  const atMatch = urlOrText.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (atMatch) {
+    return { lat: parseFloat(atMatch[1]), lng: parseFloat(atMatch[2]) };
+  }
+
+  // 2. URL pattern: ?q=lat,lng or query=lat,lng or ll=lat,lng
+  const queryMatch = urlOrText.match(/[?&](?:q|query|ll)=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (queryMatch) {
+    return { lat: parseFloat(queryMatch[1]), lng: parseFloat(queryMatch[2]) };
+  }
+
+  // 3. URL pattern: !3dlat!4dlng (Google Maps Place format)
+  const placeMatch = urlOrText.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (placeMatch) {
+    return { lat: parseFloat(placeMatch[1]), lng: parseFloat(placeMatch[2]) };
+  }
+
+  // 4. Raw coordinate text: e.g. "-25.9782, -54.5821" or "-25.9782 -54.5821"
+  const rawCoordMatch = urlOrText.match(/(-?\d{1,2}\.\d{3,})[\s,]+(-?\d{1,3}\.\d{3,})/);
+  if (rawCoordMatch) {
+    const lat = parseFloat(rawCoordMatch[1]);
+    const lng = parseFloat(rawCoordMatch[2]);
+    if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      return { lat, lng };
+    }
+  }
+
+  return null;
+};
+
+/**
+ * Resolve a short Google Maps URL (maps.app.goo.gl, goo.gl/maps, etc.) or extract coordinates directly
  */
 export const resolveMapLinkCoords = async (
   linkToResolve: string
 ): Promise<{ lat: number; lng: number } | null> => {
   if (!linkToResolve) return null;
 
-  const instantCoords = extractCoords(linkToResolve);
+  // Extract clean URL from text if mixed with message
+  const urlMatch = linkToResolve.match(/https?:\/\/[^\s]+/i);
+  const targetUrl = urlMatch ? urlMatch[0] : linkToResolve.trim();
+
+  // 1. Instant check
+  const instantCoords = extractCoords(targetUrl);
   if (instantCoords) return instantCoords;
 
-  const res = await fetch('https://www.redirectcheck.org/api/check', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: linkToResolve })
-  });
-  const data = await res.json();
-  const finalUrl = data?.final_result?.final_url || linkToResolve;
-  return extractCoords(finalUrl);
+  // 2. Attempt via unshorten.me
+  try {
+    const unshortenRes = await fetch(`https://unshorten.me/json/${encodeURIComponent(targetUrl)}`);
+    if (unshortenRes.ok) {
+      const data = await unshortenRes.json();
+      if (data?.resolved_url) {
+        const coords = extractCoords(data.resolved_url);
+        if (coords) return coords;
+      }
+    }
+  } catch (err) {
+    // Continue to next fallback
+  }
+
+  // 3. Attempt via redirectcheck.org
+  try {
+    const res = await fetch('https://www.redirectcheck.org/api/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: targetUrl })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const finalUrl = data?.final_result?.final_url || targetUrl;
+      const coords = extractCoords(finalUrl);
+      if (coords) return coords;
+    }
+  } catch (err) {
+    // Continue
+  }
+
+  return null;
+};
+
+export interface ReverseGeocodeResult {
+  formattedAddress: string;
+  street?: string;
+  neighbourhood?: string;
+  city?: string;
+  placeName?: string;
+}
+
+/**
+ * Reverse geocodes coordinates to street, neighborhood, and city using OpenStreetMap Nominatim
+ */
+export const reverseGeocodeCoords = async (
+  lat: number,
+  lng: number
+): Promise<ReverseGeocodeResult | null> => {
+  if (!lat || !lng) return null;
+
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`;
+    const res = await fetch(url, {
+      headers: {
+        'Accept-Language': 'es',
+      }
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json();
+
+    const addr = data.address || {};
+    const road = addr.road || addr.pedestrian || addr.footway || '';
+    const houseNumber = addr.house_number ? ` ${addr.house_number}` : '';
+    const street = road ? `${road}${houseNumber}` : '';
+    const neighbourhood = addr.neighbourhood || addr.suburb || addr.quarter || addr.residential || '';
+    const city = addr.town || addr.city || addr.village || addr.municipality || '';
+    const placeName = data.name && data.name !== road ? data.name : undefined;
+
+    // Build human-friendly Argentine address
+    const parts: string[] = [];
+    if (street) parts.push(street);
+    if (neighbourhood) parts.push(`Barrio ${neighbourhood}`);
+    if (city && (!neighbourhood || city.toLowerCase() !== neighbourhood.toLowerCase())) {
+      parts.push(city);
+    }
+
+    const formattedAddress = parts.join(', ') || data.display_name?.split(',').slice(0, 3).join(',') || 'Ubicación sin calle nombrada';
+
+    return {
+      formattedAddress,
+      street,
+      neighbourhood,
+      city,
+      placeName
+    };
+  } catch (err) {
+    console.warn('Reverse geocoding error:', err);
+    return null;
+  }
 };
 
 /**
