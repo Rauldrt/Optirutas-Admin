@@ -506,6 +506,32 @@ export const MapView: React.FC<MapViewProps> = ({
     .filter(stop => stop.latitude !== 0 && stop.longitude !== 0)
     .map(stop => [stop.latitude, stop.longitude] as [number, number]);
 
+  // Group stops by vehicle to render independent colored polylines for each vehicle route
+  const vehicleRoutes = useMemo(() => {
+    if (activeNavStop || activeTab === 'clients') return [];
+
+    const grouped: Record<string, { key: string; name: string; color: string; coords: [number, number][]; count: number }> = {};
+
+    for (const stop of sortedStops) {
+      if (stop.latitude === 0 || stop.longitude === 0) continue;
+      const vKey = stop.vehicleId || 'unassigned';
+      if (!grouped[vKey]) {
+        const vehicle = stop.vehicleId ? vehicles.find(v => v.id === stop.vehicleId) : null;
+        grouped[vKey] = {
+          key: vKey,
+          name: vehicle?.name || (stop.vehicleId ? stop.vehicleName || 'Móvil' : 'Sin Asignar'),
+          color: vehicle?.color || (stop.vehicleId ? '#6366f1' : '#a855f7'),
+          coords: [],
+          count: 0
+        };
+      }
+      grouped[vKey].coords.push([stop.latitude, stop.longitude]);
+      grouped[vKey].count += 1;
+    }
+
+    return Object.values(grouped).filter(r => r.coords.length > 1);
+  }, [sortedStops, activeNavStop, activeTab, vehicles]);
+
   // Build preview polyline for selected clients in the order they were selected
   const selectedClientsOrdered = selectedClientIds
     .map(id => clients.find(c => c.id === id))
@@ -815,13 +841,26 @@ export const MapView: React.FC<MapViewProps> = ({
 
       {/* Route Distance & Filter Badge (Stops & Dashboard tabs when NOT in navigation HUD mode) */}
       {!activeNavStop && activeTab !== 'clients' && sortedStops.length > 0 && (
-        <div className="absolute bottom-4 left-4 z-[1000] bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-slate-200/60 dark:border-slate-800/60 px-3.5 py-2 rounded-2xl shadow-lg flex items-center gap-3 text-xs">
+        <div className="absolute bottom-4 left-4 z-[1000] bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-slate-200/60 dark:border-slate-800/60 px-3.5 py-2 rounded-2xl shadow-lg flex flex-wrap items-center gap-3 text-xs max-w-[calc(100%-2rem)]">
           <div className="flex items-center gap-1.5 font-extrabold text-purple-600 dark:text-purple-400">
             <RouteIcon className="w-4 h-4" />
             <span>
               {totalDistanceKm > 0 ? `${totalDistanceKm.toFixed(1)} km est.` : 'Ruta activa'}
             </span>
           </div>
+
+          {/* Active vehicle routes color indicators */}
+          {vehicleRoutes.length > 0 && (
+            <div className="hidden sm:flex items-center gap-2 border-l border-slate-200 dark:border-slate-700 pl-2.5">
+              {vehicleRoutes.map(vr => (
+                <span key={vr.key} className="flex items-center gap-1 text-[10px] font-black" style={{ color: vr.color }}>
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: vr.color }} />
+                  <span>{vr.name}</span>
+                </span>
+              ))}
+            </div>
+          )}
+
           {selectedDayLabel && selectedDayLabel !== 'Todos' && (
             <span className="border-l border-slate-200 dark:border-slate-700 pl-2.5 font-bold text-slate-600 dark:text-slate-300">
               Día: {selectedDayLabel}
@@ -980,15 +1019,28 @@ export const MapView: React.FC<MapViewProps> = ({
           </Marker>
         )}
 
-        {/* Draw Route Polyline if looking at stops */}
-        {!activeNavStop && activeTab !== 'clients' && routePolylineCoords.length > 1 && (
-          <Polyline 
-            positions={routePolylineCoords} 
-            color="#a855f7" // Purple-500
-            weight={4}
-            opacity={0.8}
-            dashArray="8, 8"
-          />
+        {/* Draw Route Polylines: Independent colored lines per vehicle */}
+        {!activeNavStop && activeTab !== 'clients' && (
+          vehicleRoutes.length > 0 ? (
+            vehicleRoutes.map((vRoute) => (
+              <Polyline 
+                key={`route-polyline-${vRoute.key}`}
+                positions={vRoute.coords} 
+                color={vRoute.color} 
+                weight={4}
+                opacity={0.85}
+                dashArray="8, 8"
+              />
+            ))
+          ) : routePolylineCoords.length > 1 ? (
+            <Polyline 
+              positions={routePolylineCoords} 
+              color="#a855f7" // Purple-500
+              weight={4}
+              opacity={0.8}
+              dashArray="8, 8"
+            />
+          ) : null
         )}
 
         {/* Draw Preview Polyline connecting selected clients on the Clients map */}

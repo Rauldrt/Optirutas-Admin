@@ -108,6 +108,13 @@ export const StopList: React.FC<StopListProps> = ({
   const [selectedVehicleFilter, setSelectedVehicleFilter] = useState<string>('all');
   const [assignedVehicleId, setAssignedVehicleId] = useState<string>('');
 
+  // Multi-stop selection for batch vehicle assignment
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState<boolean>(false);
+  const [selectedStopIds, setSelectedStopIds] = useState<string[]>([]);
+  const [bulkTargetVehicleId, setBulkTargetVehicleId] = useState<string>('');
+  const [isBatchReassigning, setIsBatchReassigning] = useState<boolean>(false);
+  const [isBalancingFleet, setIsBalancingFleet] = useState<boolean>(false);
+
   // Smart Route Proposal State
   const [preferredStartStopId, setPreferredStartStopId] = useState<string>('');
   const [dismissedProposalSignature, setDismissedProposalSignature] = useState<string>('');
@@ -475,6 +482,77 @@ export const StopList: React.FC<StopListProps> = ({
     } catch (err) {
       console.error('Error reassigning vehicle to stop:', err);
       alert('Error al reasignar móvil.');
+    }
+  };
+
+  const toggleSelectStop = (stopId: string) => {
+    setSelectedStopIds(prev => 
+      prev.includes(stopId) ? prev.filter(id => id !== stopId) : [...prev, stopId]
+    );
+  };
+
+  const selectAllFilteredStops = () => {
+    if (selectedStopIds.length === sortedStops.length) {
+      setSelectedStopIds([]);
+    } else {
+      setSelectedStopIds(sortedStops.map(s => s.id));
+    }
+  };
+
+  const handleApplyBulkVehicleReassign = async () => {
+    if (selectedStopIds.length === 0) return;
+    const targetV = vehicles.find(v => v.id === bulkTargetVehicleId);
+    const targetName = targetV ? targetV.name : 'Sin Asignar';
+
+    setIsBatchReassigning(true);
+    try {
+      for (const stopId of selectedStopIds) {
+        await updateStop(stopId, {
+          vehicleId: bulkTargetVehicleId || '',
+          vehicleName: targetV?.name || '',
+        });
+      }
+      const count = selectedStopIds.length;
+      setSelectedStopIds([]);
+      setIsMultiSelectMode(false);
+      alert(`✅ Se reasignaron ${count} parada(s) a ${targetName}.`);
+    } catch (err) {
+      console.error(err);
+      alert('Error al reasignar paradas.');
+    } finally {
+      setIsBatchReassigning(false);
+    }
+  };
+
+  const handleBalanceFleetLoad = async () => {
+    const activeVehicles = vehicles.filter(v => v.status === 'available' || v.status === 'on_route');
+    if (activeVehicles.length < 2) {
+      alert('Se necesitan al menos 2 móviles disponibles/en ruta para balancear la carga.');
+      return;
+    }
+    if (dayStops.length === 0) {
+      alert('No hay paradas en este día para distribuir.');
+      return;
+    }
+
+    const confirmMsg = `¿Deseas distribuir equitativamente las ${dayStops.length} paradas de ${selectedDay} entre los ${activeVehicles.length} móviles activos (${activeVehicles.map(v => v.name).join(', ')})?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsBalancingFleet(true);
+    try {
+      for (let i = 0; i < dayStops.length; i++) {
+        const assignedVehicle = activeVehicles[i % activeVehicles.length];
+        await updateStop(dayStops[i].id, {
+          vehicleId: assignedVehicle.id,
+          vehicleName: assignedVehicle.name,
+        });
+      }
+      alert(`⚖️ ¡Carga balanceada exitosamente!\nLas ${dayStops.length} paradas se distribuyeron entre ${activeVehicles.length} móviles.`);
+    } catch (err) {
+      console.error(err);
+      alert('Error al balancear paradas.');
+    } finally {
+      setIsBalancingFleet(false);
     }
   };
 
@@ -1341,6 +1419,93 @@ export const StopList: React.FC<StopListProps> = ({
         {/* Contenedor Colapsable con Física M3 Container Transform */}
         <div className={`m3-accordion-wrapper ${!isStopListCollapsed ? 'open' : ''}`}>
           <div className="m3-accordion-inner">
+            {/* Fleet & Multi-Select Action Toolbar */}
+            {sortedStops.length > 0 && (
+              <div className="px-4 py-2.5 bg-slate-50/70 dark:bg-slate-900/40 border-b border-slate-200/50 dark:border-slate-800/50 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMultiSelectMode(prev => !prev);
+                      if (isMultiSelectMode) setSelectedStopIds([]);
+                    }}
+                    className={`px-2.5 py-1 rounded-xl font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                      isMultiSelectMode
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <CheckSquare className="w-3.5 h-3.5" />
+                    <span>{isMultiSelectMode ? 'Modo Selección: ON' : 'Selección Múltiple'}</span>
+                  </button>
+
+                  {vehicles.length >= 2 && (
+                    <button
+                      type="button"
+                      disabled={isBalancingFleet}
+                      onClick={handleBalanceFleetLoad}
+                      className="px-2.5 py-1 rounded-xl font-bold flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors cursor-pointer"
+                      title="Distribuye las paradas equitativamente entre los móviles disponibles"
+                    >
+                      <Truck className="w-3.5 h-3.5" />
+                      <span>{isBalancingFleet ? 'Balanceando...' : 'Balancear Carga'}</span>
+                    </button>
+                  )}
+                </div>
+
+                {isMultiSelectMode && (
+                  <button
+                    type="button"
+                    onClick={selectAllFilteredStops}
+                    className="text-[11px] font-bold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
+                  >
+                    {selectedStopIds.length === sortedStops.length ? 'Deseleccionar Todas' : 'Seleccionar Todas'}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Batch Reassignment Floating Bar */}
+            {selectedStopIds.length > 0 && (
+              <div className="p-3 bg-gradient-to-r from-purple-500/15 via-indigo-500/15 to-emerald-500/15 border-b border-purple-200 dark:border-purple-800 flex flex-wrap items-center justify-between gap-2.5 animate-fade-in">
+                <span className="text-xs font-black text-purple-800 dark:text-purple-300">
+                  {selectedStopIds.length} parada(s) seleccionada(s)
+                </span>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <select
+                    value={bulkTargetVehicleId}
+                    onChange={(e) => setBulkTargetVehicleId(e.target.value)}
+                    className="text-xs font-bold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 border border-slate-200 dark:border-slate-700 cursor-pointer"
+                  >
+                    <option value="">Quitar móvil (Sin Asignar)</option>
+                    {vehicles.map(v => (
+                      <option key={v.id} value={v.id}>
+                        Asignar a: {v.name} ({v.driverName})
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="button"
+                    disabled={isBatchReassigning}
+                    onClick={handleApplyBulkVehicleReassign}
+                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-black shadow-sm transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {isBatchReassigning ? 'Reasignando...' : 'Aplicar'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedStopIds([])}
+                    className="px-2 py-1 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-xs font-bold cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+
             {sortedStops.length === 0 ? (
           <div className="p-12 text-center text-slate-400 dark:text-slate-500">
             <MapPin className="w-12 h-12 mx-auto mb-4 opacity-40 text-purple-500" />
@@ -1363,11 +1528,29 @@ export const StopList: React.FC<StopListProps> = ({
                 <div 
                   key={stop.id} 
                   className={`p-4 flex items-center justify-between gap-4 transition-colors hover:bg-slate-50/40 dark:hover:bg-slate-900/10 ${
-                    stop.completed ? 'bg-emerald-50/10 dark:bg-emerald-950/5' : ''
+                    selectedStopIds.includes(stop.id)
+                      ? 'bg-purple-500/10 dark:bg-purple-950/30'
+                      : stop.completed ? 'bg-emerald-50/10 dark:bg-emerald-950/5' : ''
                   }`}
                 >
-                  {/* Left: Reordering & Completion Status */}
+                  {/* Left: Multi-select Checkbox + Reordering & Completion Status */}
                   <div className="flex items-center gap-3">
+                    {/* Multi-select Checkbox for bulk actions */}
+                    {isMultiSelectMode && (
+                      <button
+                        type="button"
+                        onClick={() => toggleSelectStop(stop.id)}
+                        className="p-1 text-slate-400 hover:text-purple-600 transition-colors cursor-pointer"
+                        title="Seleccionar para reasignación masiva"
+                      >
+                        {selectedStopIds.includes(stop.id) ? (
+                          <CheckSquare className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                        ) : (
+                          <Square className="w-5 h-5" />
+                        )}
+                      </button>
+                    )}
+
                     {/* Reordering Buttons */}
                     <div className="flex flex-col gap-0.5">
                       <button

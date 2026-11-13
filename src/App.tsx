@@ -601,6 +601,7 @@ function App() {
                 <ClientDirectory 
                   clients={clients}
                   stops={stops}
+                  vehicles={vehicles}
                   onSelectClient={handleSelectLocation}
                   selectedClientIds={selectedClientIds}
                   onSetSelectedClientIds={setSelectedClientIds}

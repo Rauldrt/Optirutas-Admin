@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Plus, Edit2, Trash2, MapPin, Search, Mail, Phone, ExternalLink, X, 
-  Send, CheckSquare, Square, Crosshair, Wand2
+  Send, CheckSquare, Square, Crosshair, Wand2, Truck
 } from 'lucide-react';
-import { addClient, updateClient, deleteClient, addStop, type Client, type Stop } from '../services/firestore';
+import { addClient, updateClient, deleteClient, addStop, type Client, type Stop, type Vehicle } from '../services/firestore';
 import { 
   extractCoords, 
   resolveMapLinkCoords, 
@@ -16,6 +16,7 @@ import {
 interface ClientDirectoryProps {
   clients: Client[];
   stops?: Stop[];
+  vehicles?: Vehicle[];
   onSelectClient: (coords: [number, number]) => void;
   selectedClientIds?: string[];
   onSetSelectedClientIds?: (ids: string[]) => void;
@@ -46,6 +47,7 @@ interface ClientDirectoryProps {
 export const ClientDirectory: React.FC<ClientDirectoryProps> = ({ 
   clients,
   stops = [],
+  vehicles = [],
   onSelectClient,
   selectedClientIds: controlledSelectedIds,
   onSetSelectedClientIds,
@@ -74,6 +76,7 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
 
   const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
   const [batchDeliveryDay, setBatchDeliveryDay] = useState(todayName);
+  const [batchVehicleId, setBatchVehicleId] = useState<string>('');
   const [autoOptimizeOnSend, setAutoOptimizeOnSend] = useState(true);
   const [isSendingBatch, setIsSendingBatch] = useState(false);
 
@@ -237,6 +240,8 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
         ? Math.max(...stopsInTargetDay.map(s => s.orderIndex)) + 1
         : 1;
 
+      const v = vehicles.find(item => item.id === batchVehicleId);
+
       for (const stopItem of batchPreview.activeList) {
         await addStop({
           name: stopItem.name,
@@ -247,6 +252,8 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
           orderIndex: nextOrderIndex++,
           deliveryDay: batchDeliveryDay,
           mapLink: stopItem.mapLink,
+          vehicleId: batchVehicleId || '',
+          vehicleName: v?.name || '',
         });
       }
 
@@ -589,6 +596,28 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
                   ))}
                 </select>
               </div>
+
+              {/* Asignación a Móvil */}
+              {vehicles.length > 0 && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <Truck className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                    <span>Asignar a Móvil (Opcional)</span>
+                  </label>
+                  <select
+                    value={batchVehicleId}
+                    onChange={(e) => setBatchVehicleId(e.target.value)}
+                    className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-purple-500 text-slate-800 dark:text-slate-100 cursor-pointer"
+                  >
+                    <option value="">Sin Asignar</option>
+                    {vehicles.map(v => (
+                      <option key={v.id} value={v.id}>
+                        {v.name} - {v.driverName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200/50 dark:border-slate-800/50">
                 <button
