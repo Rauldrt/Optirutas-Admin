@@ -2,7 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { 
   Truck, Plus, Search, Edit2, Trash2, Phone, User, 
   MapPin, CheckCircle2, Wrench, X, 
-  Calendar, MessageCircle, ShieldCheck
+  Calendar, MessageCircle, ShieldCheck,
+  Share2, KeyRound, Radio, Copy, Check
 } from 'lucide-react';
 import { 
   addVehicle, 
@@ -53,6 +54,8 @@ export const VehicleManagement: React.FC<VehicleManagementProps> = ({
   const [status, setStatus] = useState<Vehicle['status']>('available');
   const [capacity, setCapacity] = useState('');
   const [notes, setNotes] = useState('');
+  const [pin, setPin] = useState('1234');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   // Filtered vehicles
@@ -112,6 +115,7 @@ export const VehicleManagement: React.FC<VehicleManagementProps> = ({
     setStatus('available');
     setCapacity('');
     setNotes('');
+    setPin('1234');
     setIsModalOpen(true);
   };
 
@@ -126,6 +130,7 @@ export const VehicleManagement: React.FC<VehicleManagementProps> = ({
     setStatus(vehicle.status);
     setCapacity(vehicle.capacity || '');
     setNotes(vehicle.notes || '');
+    setPin(vehicle.pin || '1234');
     setIsModalOpen(true);
   };
 
@@ -148,6 +153,7 @@ export const VehicleManagement: React.FC<VehicleManagementProps> = ({
         status,
         capacity: capacity.trim(),
         notes: notes.trim(),
+        pin: pin.trim() || '1234',
       };
 
       if (editingVehicle) {
@@ -162,6 +168,34 @@ export const VehicleManagement: React.FC<VehicleManagementProps> = ({
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const getMagicLink = (v: Vehicle) => {
+    if (typeof window === 'undefined') return '';
+    const origin = window.location.origin;
+    const path = window.location.pathname;
+    return `${origin}${path}?mode=driver&vehicleId=${v.id}&pin=${v.pin || '1234'}`;
+  };
+
+  const handleShareMagicLink = (v: Vehicle) => {
+    const link = getMagicLink(v);
+    const text = `Hola ${v.driverName}! Aquí tienes tu acceso directo a Optirutas para ${v.name}: ${link}`;
+    if (v.driverPhone) {
+      const cleanPhone = v.driverPhone.replace(/[^0-9]/g, '');
+      window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
+    } else {
+      navigator.clipboard.writeText(link);
+      setCopiedId(v.id);
+      setTimeout(() => setCopiedId(null), 2500);
+      alert('¡Enlace de acceso directo copiado al portapapeles! Puedes pegarlo y enviárselo al chofer.');
+    }
+  };
+
+  const handleCopyLinkOnly = (v: Vehicle) => {
+    const link = getMagicLink(v);
+    navigator.clipboard.writeText(link);
+    setCopiedId(v.id);
+    setTimeout(() => setCopiedId(null), 2500);
   };
 
   const handleDelete = async (vehicle: Vehicle) => {
@@ -470,6 +504,57 @@ export const VehicleManagement: React.FC<VehicleManagementProps> = ({
                         "{vehicle.notes}"
                       </p>
                     )}
+
+                    {/* Live Telemetry Radar Signal */}
+                    {vehicle.telemetry?.updatedAt && (
+                      <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 text-[10px] border border-slate-200/50 dark:border-slate-800">
+                        <span className="flex items-center gap-1.5 font-bold text-slate-700 dark:text-slate-300">
+                          <Radio className={`w-3 h-3 ${Date.now() - vehicle.telemetry.updatedAt < 1000 * 60 * 15 ? 'text-emerald-500 animate-pulse' : 'text-slate-400'}`} />
+                          <span>
+                            {Date.now() - vehicle.telemetry.updatedAt < 1000 * 60 * 15 ? 'GPS En Vivo' : 'Última señal'}
+                          </span>
+                        </span>
+                        <span className="text-slate-500 font-mono">
+                          {vehicle.telemetry.speed !== undefined && vehicle.telemetry.speed > 0 ? `${vehicle.telemetry.speed} km/h • ` : ''}
+                          hace {Math.max(1, Math.round((Date.now() - vehicle.telemetry.updatedAt) / 60000))} min
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Access PIN & Driver WhatsApp Magic Link */}
+                    <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-purple-50/60 dark:bg-purple-950/40 border border-purple-200/60 dark:border-purple-800/50 text-xs">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <KeyRound className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 flex-shrink-0" />
+                        <span className="font-bold text-slate-700 dark:text-slate-300">PIN:</span>
+                        <span className="font-mono font-black text-purple-700 dark:text-purple-300 bg-white dark:bg-slate-900 px-1.5 py-0.5 rounded border border-purple-200 dark:border-purple-800 tracking-widest text-[11px]">
+                          {vehicle.pin || '1234'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyLinkOnly(vehicle)}
+                          className="p-1.5 rounded-lg text-slate-500 hover:text-purple-600 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors cursor-pointer"
+                          title="Copiar link de acceso para conductor"
+                        >
+                          {copiedId === vehicle.id ? (
+                            <Check className="w-3.5 h-3.5 text-emerald-500" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleShareMagicLink(vehicle)}
+                          className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-[10px] px-2.5 py-1 rounded-lg shadow-sm transition-all cursor-pointer"
+                          title="Enviar acceso directo por WhatsApp al chofer"
+                        >
+                          <Share2 className="w-3 h-3" />
+                          <span>Enviar Acceso</span>
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Actions Footer */}
@@ -658,7 +743,24 @@ export const VehicleManagement: React.FC<VehicleManagementProps> = ({
               </div>
 
               {/* Capacidad y Notas */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                    <span>PIN de Acceso Chofer</span>
+                    <span className="text-[10px] text-slate-400 font-mono">4 dígitos</span>
+                  </label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={4}
+                    placeholder="1234"
+                    value={pin}
+                    onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, ''))}
+                    className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-3.5 py-2 text-sm font-mono font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
                     Capacidad (Opcional)
@@ -678,7 +780,7 @@ export const VehicleManagement: React.FC<VehicleManagementProps> = ({
                   </label>
                   <input
                     type="text"
-                    placeholder="ej: Seguro al día, GPS instalado"
+                    placeholder="ej: GPS activo"
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-3.5 py-2 text-sm font-semibold text-slate-900 dark:text-white focus:ring-2 focus:ring-purple-500"

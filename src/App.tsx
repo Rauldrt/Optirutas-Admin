@@ -20,8 +20,10 @@ import {
   updateStop
 } from './services/firestore';
 import { getCurrentDayNameEs } from './utils/geo';
-import { Database, PlusCircle, CheckCircle2, MapPin, Menu, Clock, Navigation, Download } from 'lucide-react';
+import { Database, PlusCircle, CheckCircle2, MapPin, Menu, Clock, Navigation, Download, LogOut } from 'lucide-react';
 import { usePWAInstall } from './hooks/usePWAInstall';
+import { AuthGate, type UserSession } from './components/AuthGate';
+import { DriverView } from './components/DriverView';
 
 function App() {
   const todayName = getCurrentDayNameEs();
@@ -39,6 +41,26 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // Dynamic default day: starts on today's day of the week (e.g. 'Jueves')
   const [selectedDay, setSelectedDay] = useState<string>(todayName);
+
+  // User Authentication & Role Session State ('admin' vs 'driver')
+  const [session, setSession] = useState<UserSession | null>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('optirutas_session');
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          return null;
+        }
+      }
+    }
+    return null;
+  });
+
+  const handleLogout = () => {
+    localStorage.removeItem('optirutas_session');
+    setSession(null);
+  };
 
   // PWA Installation Hook
   const { isInstallable, installApp } = usePWAInstall();
@@ -287,6 +309,54 @@ function App() {
 
   const daysOfWeek = ['Todos', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
+  // If no session active, show Authentication Gate
+  if (!session) {
+    return <AuthGate vehicles={vehicles} onLoginSuccess={setSession} />;
+  }
+
+  // If logged in as driver, show dedicated Driver View
+  if (session.role === 'driver') {
+    const driverVehicle = vehicles.find(v => v.id === session.vehicleId);
+
+    if (!driverVehicle && vehicles.length > 0) {
+      // Vehicle might have been deleted
+      return (
+        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 text-center">
+          <div className="max-w-sm space-y-4">
+            <h2 className="text-xl font-bold text-white">Móvil no encontrado</h2>
+            <p className="text-xs text-slate-400">
+              El móvil asignado a esta sesión ya no existe o fue eliminado.
+            </p>
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 bg-purple-600 text-white text-xs font-bold rounded-xl cursor-pointer"
+            >
+              Cerrar Sesión y Volver
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (!driverVehicle) {
+      // Still loading vehicles from Firestore
+      return (
+        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 text-center">
+          <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mb-3" />
+          <p className="text-xs text-slate-400 font-bold">Cargando datos del móvil...</p>
+        </div>
+      );
+    }
+
+    return (
+      <DriverView 
+        vehicle={driverVehicle} 
+        stops={stops} 
+        onLogout={handleLogout} 
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950 transition-colors duration-300 overflow-x-hidden">
       {/* Mobile Drawer Backdrop */}
@@ -386,6 +456,17 @@ function App() {
                 )}
               </span>
             </div>
+
+            {/* Admin Logout / Lock Button */}
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-2xl bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-600 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 border border-slate-200/60 dark:border-slate-800 text-[10px] sm:text-xs font-bold transition-all cursor-pointer flex-shrink-0 shadow-sm"
+              title="Cerrar sesión de administrador / Cambiar a conductor"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Cerrar Sesión</span>
+            </button>
           </div>
         </header>
 

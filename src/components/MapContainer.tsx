@@ -484,6 +484,31 @@ export const MapView: React.FC<MapViewProps> = ({
     });
   };
 
+  const createFleetRadarIcon = (v: Vehicle) => {
+    const rot = v.telemetry?.heading || 0;
+    const color = v.color || '#6366f1';
+    const isMoving = (v.telemetry?.speed || 0) > 3;
+
+    return L.divIcon({
+      className: 'custom-fleet-radar-marker',
+      html: `
+        <div class="relative flex flex-col items-center justify-center" style="width: 50px; height: 50px;">
+          ${isMoving ? `<div class="absolute w-11 h-11 rounded-full opacity-40 animate-ping" style="background-color: ${color}"></div>` : ''}
+          <div class="relative w-8 h-8 rounded-2xl border-2 border-white dark:border-slate-900 flex items-center justify-center shadow-xl text-white font-black" style="background-color: ${color}; box-shadow: 0 4px 12px ${color}80;">
+            <svg class="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate(${rot}deg); transition: transform 0.4s ease-out;">
+              <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
+            </svg>
+          </div>
+          <div class="mt-0.5 bg-slate-900/95 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md shadow-md border border-slate-700 whitespace-nowrap">
+            ${v.name}
+          </div>
+        </div>
+      `,
+      iconSize: [50, 50],
+      iconAnchor: [25, 25]
+    });
+  };
+
   const createPickedIcon = () => {
     return L.divIcon({
       className: 'custom-picked-marker',
@@ -1018,6 +1043,54 @@ export const MapView: React.FC<MapViewProps> = ({
             </Popup>
           </Marker>
         )}
+
+        {/* Live Fleet Telemetry Radar for all registered reporting vehicles */}
+        {vehicles && vehicles.map((v) => {
+          if (!v.telemetry || !v.telemetry.lat || !v.telemetry.lng) return null;
+          // Only show vehicles reporting within the last 35 minutes
+          const isRecent = Date.now() - v.telemetry.updatedAt < 1000 * 60 * 35;
+          if (!isRecent) return null;
+
+          return (
+            <Marker
+              key={`fleet-radar-${v.id}`}
+              position={[v.telemetry.lat, v.telemetry.lng]}
+              icon={createFleetRadarIcon(v)}
+              zIndexOffset={950}
+            >
+              <Popup>
+                <div className="p-2 text-slate-800 dark:text-slate-100 min-w-[180px]">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span 
+                      className="w-3 h-3 rounded-full flex-shrink-0" 
+                      style={{ backgroundColor: v.color }} 
+                    />
+                    <h3 className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                      {v.name}
+                    </h3>
+                  </div>
+
+                  <p className="text-xs text-slate-600 dark:text-slate-300">
+                    <b>Chofer:</b> {v.driverName}
+                  </p>
+                  {v.plate && (
+                    <p className="text-xs text-slate-600 dark:text-slate-300">
+                      <b>Patente:</b> {v.plate}
+                    </p>
+                  )}
+                  {v.telemetry.speed !== undefined && (
+                    <p className="text-xs text-slate-600 dark:text-slate-300">
+                      <b>Velocidad:</b> {v.telemetry.speed} km/h
+                    </p>
+                  )}
+                  <p className="text-[10px] text-slate-400 mt-1.5 pt-1 border-t border-slate-200/60 dark:border-slate-800">
+                    🛰️ Posición recibida hace {Math.max(1, Math.round((Date.now() - v.telemetry.updatedAt) / 60000))} min
+                  </p>
+                </div>
+              </Popup>
+            </Marker>
+          );
+        })}
 
         {/* Draw Route Polylines: Independent colored lines per vehicle */}
         {!activeNavStop && activeTab !== 'clients' && (

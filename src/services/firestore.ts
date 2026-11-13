@@ -26,6 +26,14 @@ export interface Stop {
   vehicleName?: string;
 }
 
+export interface VehicleTelemetry {
+  lat: number;
+  lng: number;
+  heading?: number;
+  speed?: number;
+  updatedAt: number;
+}
+
 export interface Vehicle {
   id: string;
   name: string;
@@ -37,6 +45,8 @@ export interface Vehicle {
   status: 'available' | 'on_route' | 'maintenance' | 'inactive';
   capacity?: string;
   notes?: string;
+  pin?: string;
+  telemetry?: VehicleTelemetry;
   createdAt?: number;
 }
 
@@ -322,6 +332,14 @@ export const subscribeToVehicles = (callback: (vehicles: Vehicle[]) => void) => 
         status: data.status || 'available',
         capacity: data.capacity || '',
         notes: data.notes || '',
+        pin: data.pin || '1234',
+        telemetry: data.telemetry ? {
+          lat: Number(data.telemetry.lat) || 0,
+          lng: Number(data.telemetry.lng) || 0,
+          heading: data.telemetry.heading !== undefined ? Number(data.telemetry.heading) : undefined,
+          speed: data.telemetry.speed !== undefined ? Number(data.telemetry.speed) : undefined,
+          updatedAt: Number(data.telemetry.updatedAt) || Date.now(),
+        } : undefined,
         createdAt: Number(data.createdAt) || Date.now(),
       });
     });
@@ -347,6 +365,7 @@ export const addVehicle = async (vehicle: Omit<Vehicle, 'id'> & { id?: string })
       status: vehicle.status || 'available',
       capacity: vehicle.capacity?.trim() || '',
       notes: vehicle.notes?.trim() || '',
+      pin: vehicle.pin?.trim() || '1234',
       createdAt: vehicle.createdAt || Date.now(),
     };
     await setDoc(doc(db, VEHICLES_COLLECTION, id), data);
@@ -370,11 +389,32 @@ export const updateVehicle = async (id: string, updates: Partial<Omit<Vehicle, '
     if (updates.status !== undefined) cleanUpdates.status = updates.status;
     if (updates.capacity !== undefined) cleanUpdates.capacity = updates.capacity.trim();
     if (updates.notes !== undefined) cleanUpdates.notes = updates.notes.trim();
+    if (updates.pin !== undefined) cleanUpdates.pin = updates.pin.trim() || '1234';
 
     await updateDoc(docRef, cleanUpdates);
   } catch (error) {
     console.error("Error updating vehicle: ", error);
     throw error;
+  }
+};
+
+export const updateVehicleTelemetry = async (
+  vehicleId: string, 
+  telemetry: VehicleTelemetry
+) => {
+  try {
+    const docRef = doc(db, VEHICLES_COLLECTION, vehicleId);
+    await updateDoc(docRef, {
+      telemetry: {
+        lat: Number(telemetry.lat),
+        lng: Number(telemetry.lng),
+        heading: telemetry.heading !== undefined ? Number(telemetry.heading) : null,
+        speed: telemetry.speed !== undefined ? Number(telemetry.speed) : null,
+        updatedAt: Number(telemetry.updatedAt) || Date.now()
+      }
+    });
+  } catch (error) {
+    console.error("Error updating vehicle telemetry: ", error);
   }
 };
 
