@@ -1,9 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { updateStop, type Stop, type Client } from '../services/firestore';
 import { calculateRouteDistanceKm } from '../utils/geo';
-import { Crosshair, Route as RouteIcon, X, MousePointerClick, Send, BoxSelect } from 'lucide-react';
+import { 
+  Crosshair, Route as RouteIcon, X, MousePointerClick, Send, BoxSelect,
+  Navigation, Locate, LocateFixed, Volume2, VolumeX, CheckCircle2, AlertCircle
+} from 'lucide-react';
+import { useGeolocation, speakInstruction } from '../hooks/useGeolocation';
+import { getStreetRoute, type RouteResult } from '../services/routing';
 
 // Component to handle map center changes dynamically
 const ChangeMapView: React.FC<{ center: [number, number]; zoom?: number }> = ({ center, zoom }) => {
@@ -90,6 +95,11 @@ interface MapViewProps {
   onToggleSelectClient?: (clientId: string) => void;
   onSetSelectedClients?: (clientIds: string[]) => void;
   onRequestSendSelectedClients?: () => void;
+  // In-App Navigation props
+  activeNavStop?: Stop | null;
+  onStartNavigation?: (stop: Stop) => void;
+  onEndNavigation?: () => void;
+  onCompleteAndNextStop?: (stopId: string) => void;
 }
 
 export const MapView: React.FC<MapViewProps> = ({ 
@@ -105,15 +115,88 @@ export const MapView: React.FC<MapViewProps> = ({
   selectedClientIds = [],
   onToggleSelectClient,
   onSetSelectedClients,
-  onRequestSendSelectedClients
+  onRequestSendSelectedClients,
+  activeNavStop = null,
+  onStartNavigation,
+  onEndNavigation,
+  onCompleteAndNextStop
 }) => {
   const [mapCenter, setMapCenter] = useState<[number, number]>([-34.6037, -58.3816]); // Buenos Aires default
   const [zoom, setZoom] = useState<number>(13);
   // Quick-select mode on Clients map: clicking a marker immediately toggles selection
   const [quickMapSelectMode, setQuickMapSelectMode] = useState<boolean>(true);
 
-  // Auto-center map based on items or selection
+  // In-App Turn-by-Turn Navigation & GPS Tracking
+  const { 
+    coords: userCoords, 
+    heading, 
+    speedKmH, 
+    accuracy, 
+    isTracking, 
+    error: gpsError, 
+    startTracking, 
+    stopTracking 
+  } = useGeolocation();
+
+  const [streetRoute, setStreetRoute] = useState<RouteResult | null>(null);
+  const [isVoiceMuted, setIsVoiceMuted] = useState(false);
+  const lastSpokenInstructionRef = useRef<string>('');
+
+  // Start GPS tracking automatically when entering navigation mode
   useEffect(() => {
+    if (activeNavStop) {
+      startTracking();
+    }
+  }, [activeNavStop, startTracking]);
+
+  // Calculate street route with OSRM when navigating to activeNavStop
+  useEffect(() => {
+    if (!activeNavStop) {
+      setStreetRoute(null);
+      lastSpokenInstructionRef.current = '';
+      return;
+    }
+
+    const destCoords: [number, number] = [activeNavStop.latitude, activeNavStop.longitude];
+    // Use driver GPS coordinates if available, otherwise first available stop or destination vicinity
+    const originCoords: [number, number] = userCoords || [destCoords[0] - 0.005, destCoords[1] - 0.005];
+
+    let isMounted = true;
+    getStreetRoute(originCoords, destCoords).then(route => {
+      if (!isMounted) return;
+      if (route) {
+        setStreetRoute(route);
+        // Voice guidance on step changes
+        const nextInstruction = route.steps?.[0]?.instruction;
+        if (nextInstruction && nextInstruction !== lastSpokenInstructionRef.current && !isVoiceMuted) {
+          lastSpokenInstructionRef.current = nextInstruction;
+          speakInstruction(nextInstruction);
+        }
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeNavStop, userCoords, isVoiceMuted]);
+
+  // Center on user position or active destination during navigation
+  useEffect(() => {
+    if (activeNavStop) {
+      if (userCoords) {
+        setMapCenter(userCoords);
+        setZoom(16);
+      } else {
+        setMapCenter([activeNavStop.latitude, activeNavStop.longitude]);
+        setZoom(16);
+      }
+    }
+  }, [activeNavStop, userCoords]);
+
+  // Auto-center map based on items or selection when not navigating
+  useEffect(() => {
+    if (activeNavStop) return;
+
     if (selectedCoordinates) {
       setMapCenter(selectedCoordinates);
       setZoom(15);
@@ -132,7 +215,21 @@ export const MapView: React.FC<MapViewProps> = ({
         setMapCenter([sumLat / validCoords.length, sumLng / validCoords.length]);
       }
     }
-  }, [stops, clients, activeTab, selectedCoordinates]);
+  }, [stops, clients, activeTab, selectedCoordinates, activeNavStop]);
+
+  // Manual GPS toggle handler
+  const handleToggleGps = () => {
+    if (isTracking) {
+      if (userCoords) {
+        setMapCenter(userCoords);
+        setZoom(16);
+      } else {
+        stopTracking();
+      }
+    } else {
+      startTracking();
+    }
+  };
 
   // Create custom markers using L.divIcon
   const createClientIcon = (selectionOrder: number | null) => {
@@ -195,6 +292,41 @@ export const MapView: React.FC<MapViewProps> = ({
       `,
       iconSize: [28, 28],
       iconAnchor: [14, 14]
+    });
+  };
+
+  const createActiveNavStopIcon = (index: number) => {
+    return L.divIcon({
+      className: 'custom-active-nav-stop-marker',
+      html: `
+        <div class="relative flex items-center justify-center">
+          <div class="absolute w-10 h-10 bg-blue-500 rounded-full opacity-40 animate-ping"></div>
+          <div class="w-9 h-9 bg-gradient-to-tr from-blue-600 to-indigo-600 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center shadow-2xl shadow-blue-500/60 text-white font-black text-sm">
+            #${index}
+          </div>
+        </div>
+      `,
+      iconSize: [36, 36],
+      iconAnchor: [18, 18]
+    });
+  };
+
+  const createVehicleIcon = (headingDeg: number | null) => {
+    const rot = headingDeg !== null ? headingDeg : 0;
+    return L.divIcon({
+      className: 'custom-vehicle-marker',
+      html: `
+        <div class="relative flex items-center justify-center" style="width: 44px; height: 44px;">
+          <div class="absolute w-10 h-10 bg-blue-500 rounded-full opacity-35 animate-ping"></div>
+          <div class="w-9 h-9 bg-gradient-to-tr from-blue-600 to-indigo-700 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center shadow-2xl shadow-blue-600/50 text-white" style="transform: rotate(${rot}deg); transition: transform 0.3s ease-out;">
+            <svg class="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
+            </svg>
+          </div>
+        </div>
+      `,
+      iconSize: [44, 44],
+      iconAnchor: [22, 22]
     });
   };
 
@@ -262,8 +394,138 @@ export const MapView: React.FC<MapViewProps> = ({
         </div>
       )}
 
-      {/* Route Distance & Filter Badge (Stops & Dashboard tabs) */}
-      {activeTab !== 'clients' && sortedStops.length > 0 && (
+      {/* In-App Turn-by-Turn Navigation: Top Maneuver HUD Banner */}
+      {activeNavStop && (
+        <div className="absolute top-3 left-3 right-3 sm:left-4 sm:right-4 z-[1000] pointer-events-auto">
+          <div className="bg-slate-900/95 dark:bg-slate-900/95 text-white px-4 py-3 rounded-2xl shadow-2xl border border-blue-500/40 backdrop-blur-md flex items-center justify-between gap-3 animate-fade-in">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/30">
+                <Navigation className="w-5 h-5 text-white animate-pulse" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">
+                  {streetRoute?.steps?.[0]?.distanceMeters 
+                    ? `En ${Math.round(streetRoute.steps[0].distanceMeters)} m` 
+                    : 'Navegación Activa'}
+                </p>
+                <p className="text-sm font-black text-white truncate">
+                  {streetRoute?.steps?.[0]?.instruction || `Dirigiéndose a ${activeNavStop.name}`}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsVoiceMuted(prev => !prev)}
+                className={`p-2 rounded-xl transition-colors cursor-pointer ${
+                  isVoiceMuted 
+                    ? 'text-slate-400 hover:bg-slate-800' 
+                    : 'text-blue-400 bg-blue-950/60 hover:bg-blue-900/60'
+                }`}
+                title={isVoiceMuted ? 'Activar voz de navegación' : 'Silenciar voz'}
+              >
+                {isVoiceMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+              </button>
+
+              {onEndNavigation && (
+                <button
+                  type="button"
+                  onClick={onEndNavigation}
+                  className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+                  title="Salir de navegación"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* In-App Turn-by-Turn Navigation: Bottom Destination & Controls HUD Bar */}
+      {activeNavStop && (
+        <div className="absolute bottom-4 left-3 right-3 sm:left-4 sm:right-4 z-[1000] pointer-events-auto">
+          <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/80 dark:border-slate-800/80 px-4 py-3 rounded-3xl shadow-2xl flex flex-wrap items-center justify-between gap-3 animate-fade-in">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-2xl bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-black text-sm flex items-center justify-center shadow-inner">
+                #{activeNavStop.orderIndex}
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-black text-slate-900 dark:text-white truncate max-w-[160px] sm:max-w-xs">
+                    {activeNavStop.name}
+                  </h4>
+                  <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
+                    En Curso
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 mt-0.5">
+                  {streetRoute && (
+                    <>
+                      <span className="text-slate-900 dark:text-white font-extrabold">
+                        {streetRoute.durationMinutes} min
+                      </span>
+                      <span>•</span>
+                      <span>{streetRoute.distanceKm.toFixed(1)} km</span>
+                    </>
+                  )}
+                  {speedKmH !== null && speedKmH > 0 && (
+                    <>
+                      <span>•</span>
+                      <span className="text-emerald-600 dark:text-emerald-400">{speedKmH} km/h</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 ml-auto">
+              {onCompleteAndNextStop && (
+                <button
+                  type="button"
+                  onClick={() => onCompleteAndNextStop(activeNavStop.id)}
+                  className="flex items-center gap-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white px-4 py-2.5 rounded-2xl text-xs font-black shadow-lg shadow-emerald-500/25 transition-all cursor-pointer m3-surface-interactive"
+                  title="Marcar parada como completada y calcular ruta a la siguiente parada"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Completar y Siguiente</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating GPS Recenter & Tracking Button */}
+      <div className="absolute top-3 left-3 z-[990] pointer-events-auto flex flex-col gap-2">
+        <button
+          type="button"
+          onClick={handleToggleGps}
+          className={`p-2.5 rounded-2xl shadow-xl border backdrop-blur-md transition-all cursor-pointer flex items-center gap-2 text-xs font-extrabold ${
+            isTracking
+              ? 'bg-blue-600 text-white border-blue-500 shadow-blue-500/30 ring-2 ring-blue-400/40'
+              : 'bg-white/90 dark:bg-slate-900/90 text-slate-700 dark:text-slate-300 border-slate-200/80 dark:border-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+          title={isTracking ? 'GPS Activo: Toca para centrar en ti' : 'Activar GPS en tiempo real'}
+        >
+          {isTracking ? <LocateFixed className="w-4 h-4 text-white animate-pulse" /> : <Locate className="w-4 h-4" />}
+          <span className="hidden sm:inline">
+            {isTracking ? (speedKmH !== null && speedKmH > 0 ? `${speedKmH} km/h` : 'GPS Activo') : 'Mi Ubicación'}
+          </span>
+        </button>
+      </div>
+
+      {/* GPS Error Notification if permissions denied */}
+      {gpsError && (
+        <div className="absolute top-16 left-3 right-3 sm:left-4 sm:right-auto z-[990] bg-rose-600/90 backdrop-blur-md text-white text-[11px] font-bold px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-2">
+          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+          <span>{gpsError}</span>
+        </div>
+      )}
+
+      {/* Route Distance & Filter Badge (Stops & Dashboard tabs when NOT in navigation HUD mode) */}
+      {!activeNavStop && activeTab !== 'clients' && sortedStops.length > 0 && (
         <div className="absolute bottom-4 left-4 z-[1000] bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-slate-200/60 dark:border-slate-800/60 px-3.5 py-2 rounded-2xl shadow-lg flex items-center gap-3 text-xs">
           <div className="flex items-center gap-1.5 font-extrabold text-purple-600 dark:text-purple-400">
             <RouteIcon className="w-4 h-4" />
@@ -375,8 +637,46 @@ export const MapView: React.FC<MapViewProps> = ({
           </Marker>
         )}
 
+        {/* Draw Live Street-routed Polyline from OSRM when in navigation mode */}
+        {activeNavStop && streetRoute && streetRoute.coordinates.length > 0 && (
+          <Polyline 
+            positions={streetRoute.coordinates} 
+            color="#2563eb" // Blue-600
+            weight={6}
+            opacity={0.9}
+          />
+        )}
+
+        {/* Live Driver Vehicle GPS Marker */}
+        {userCoords && (
+          <Marker 
+            position={userCoords} 
+            icon={createVehicleIcon(heading)}
+            zIndexOffset={1000}
+          >
+            <Popup>
+              <div className="p-1.5 text-xs text-slate-800 dark:text-slate-100 min-w-[150px]">
+                <p className="font-extrabold flex items-center gap-1.5 text-blue-600 dark:text-blue-400">
+                  <Navigation className="w-3.5 h-3.5" />
+                  <span>Tu Ubicación (Conductor)</span>
+                </p>
+                {speedKmH !== null && speedKmH > 0 && (
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1">
+                    Velocidad: <b>{speedKmH} km/h</b>
+                  </p>
+                )}
+                {accuracy !== null && (
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    Precisión GPS: ±{accuracy}m
+                  </p>
+                )}
+              </div>
+            </Popup>
+          </Marker>
+        )}
+
         {/* Draw Route Polyline if looking at stops */}
-        {activeTab !== 'clients' && routePolylineCoords.length > 1 && (
+        {!activeNavStop && activeTab !== 'clients' && routePolylineCoords.length > 1 && (
           <Polyline 
             positions={routePolylineCoords} 
             color="#a855f7" // Purple-500
@@ -462,48 +762,76 @@ export const MapView: React.FC<MapViewProps> = ({
         })}
 
         {/* Render Stops on Map */}
-        {activeTab !== 'clients' && sortedStops.map((stop) => (
-          stop.latitude !== 0 && stop.longitude !== 0 && (
-            <Marker 
-              key={`stop-${stop.id}`} 
-              position={[stop.latitude, stop.longitude]}
-              icon={stop.completed ? createCompletedStopIcon() : createPendingStopIcon(stop.orderIndex)}
-            >
-              <Popup>
-                <div className="p-2 text-slate-800 dark:text-slate-100 min-w-[180px]">
-                  <div className="flex items-center justify-between gap-2 mb-1.5">
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold text-white ${stop.completed ? 'bg-emerald-500' : 'bg-amber-500'}`}>
-                      {stop.completed ? 'Completado' : `Parada ${stop.orderIndex}`}
-                    </span>
-                    <span className="text-[10px] font-semibold text-slate-500">
-                      {stop.deliveryDay}
-                    </span>
+        {activeTab !== 'clients' && sortedStops.map((stop) => {
+          const isStopActiveNav = activeNavStop?.id === stop.id;
+          let markerIcon = stop.completed 
+            ? createCompletedStopIcon() 
+            : isStopActiveNav 
+              ? createActiveNavStopIcon(stop.orderIndex) 
+              : createPendingStopIcon(stop.orderIndex);
+
+          return (
+            stop.latitude !== 0 && stop.longitude !== 0 && (
+              <Marker 
+                key={`stop-${stop.id}`} 
+                position={[stop.latitude, stop.longitude]}
+                icon={markerIcon}
+                zIndexOffset={isStopActiveNav ? 900 : 100}
+              >
+                <Popup>
+                  <div className="p-2 text-slate-800 dark:text-slate-100 min-w-[200px]">
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold text-white ${
+                        stop.completed 
+                          ? 'bg-emerald-500' 
+                          : isStopActiveNav 
+                            ? 'bg-blue-600 animate-pulse' 
+                            : 'bg-amber-500'
+                      }`}>
+                        {stop.completed ? 'Completado' : isStopActiveNav ? `Navegando #${stop.orderIndex}` : `Parada ${stop.orderIndex}`}
+                      </span>
+                      <span className="text-[10px] font-semibold text-slate-500">
+                        {stop.deliveryDay}
+                      </span>
+                    </div>
+                    <h3 className="font-extrabold text-sm mb-1">{stop.name}</h3>
+                    <p className="text-xs mb-2"><b>Dirección:</b> {stop.address}</p>
+                    <div className="flex flex-wrap items-center justify-between gap-1.5 pt-2 border-t border-slate-200/60">
+                      <button
+                        onClick={() => handleToggleStopFromPopup(stop)}
+                        className={`text-[11px] font-bold px-2.5 py-1 rounded-lg text-white transition-colors cursor-pointer ${
+                          stop.completed ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-600 hover:bg-emerald-700'
+                        }`}
+                      >
+                        {stop.completed ? 'Marcar Pendiente' : '✓ Completar'}
+                      </button>
+
+                      {onStartNavigation && !stop.completed && (
+                        <button
+                          type="button"
+                          onClick={() => onStartNavigation(stop)}
+                          className="flex items-center gap-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg shadow-sm transition-all cursor-pointer"
+                        >
+                          <Navigation className="w-3 h-3" />
+                          <span>Navegar In-App</span>
+                        </button>
+                      )}
+
+                      <a
+                        href={stop.mapLink || `https://www.google.com/maps/search/?api=1&query=${stop.latitude},${stop.longitude}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[10px] font-bold text-indigo-600 hover:underline ml-auto"
+                      >
+                        Google Maps ↗
+                      </a>
+                    </div>
                   </div>
-                  <h3 className="font-extrabold text-sm mb-1">{stop.name}</h3>
-                  <p className="text-xs mb-2"><b>Dirección:</b> {stop.address}</p>
-                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/60">
-                    <button
-                      onClick={() => handleToggleStopFromPopup(stop)}
-                      className={`text-[11px] font-bold px-2.5 py-1 rounded-lg text-white transition-colors cursor-pointer ${
-                        stop.completed ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-600 hover:bg-emerald-700'
-                      }`}
-                    >
-                      {stop.completed ? 'Marcar Pendiente' : '✓ Completar'}
-                    </button>
-                    <a
-                      href={stop.mapLink || `https://www.google.com/maps/search/?api=1&query=${stop.latitude},${stop.longitude}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[11px] font-bold text-indigo-600 hover:underline"
-                    >
-                      Navegar →
-                    </a>
-                  </div>
-                </div>
-              </Popup>
-            </Marker>
-          )
-        ))}
+                </Popup>
+              </Marker>
+            )
+          );
+        })}
       </MapContainer>
     </div>
   );

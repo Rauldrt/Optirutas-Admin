@@ -17,7 +17,7 @@ import {
   updateStop
 } from './services/firestore';
 import { getCurrentDayNameEs } from './utils/geo';
-import { Database, PlusCircle, CheckCircle2, MapPin, Menu, Clock } from 'lucide-react';
+import { Database, PlusCircle, CheckCircle2, MapPin, Menu, Clock, Navigation } from 'lucide-react';
 
 function App() {
   const todayName = getCurrentDayNameEs();
@@ -31,6 +31,47 @@ function App() {
   const [stops, setStops] = useState<Stop[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [history, setHistory] = useState<RouteHistory[]>([]);
+  
+  // Active in-app navigation stop
+  const [activeNavStop, setActiveNavStop] = useState<Stop | null>(null);
+
+  const handleStartNavigation = (stop: Stop) => {
+    setActiveNavStop(stop);
+    if (currentTab !== 'stops') {
+      setCurrentTab('stops');
+    }
+    setTimeout(() => {
+      document.getElementById('map-section')?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+  };
+
+  const handleEndNavigation = () => {
+    setActiveNavStop(null);
+  };
+
+  const handleCompleteAndNextStop = async (completedStopId: string) => {
+    // Mark stop completed in Firestore
+    await updateStop(completedStopId, {
+      completed: true,
+      completedAt: Date.now()
+    });
+
+    // Find next uncompleted stop in sequence for today's route
+    const currentDayStops = stops
+      .filter(s => selectedDay === 'Todos' || s.deliveryDay.toLowerCase() === selectedDay.toLowerCase())
+      .sort((a, b) => a.orderIndex - b.orderIndex);
+
+    const nextPendingStop = currentDayStops.find(
+      s => s.id !== completedStopId && !s.completed
+    );
+
+    if (nextPendingStop) {
+      setActiveNavStop(nextPendingStop);
+    } else {
+      setActiveNavStop(null);
+      alert('🎉 ¡Felicitaciones! Has completado todas las paradas de la ruta.');
+    }
+  };
   
   // Selected Coordinates to focus map
   const [selectedCoords, setSelectedCoords] = useState<[number, number] | undefined>(undefined);
@@ -338,13 +379,24 @@ function App() {
                               </p>
                             </div>
                           </div>
-                          <button
-                            onClick={() => handleSelectLocation([stop.latitude, stop.longitude])}
-                            className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer flex-shrink-0"
-                            title="Centrar mapa"
-                          >
-                            <MapPin className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {!stop.completed && (
+                              <button
+                                onClick={() => handleStartNavigation(stop)}
+                                className="p-1.5 text-blue-500 hover:text-blue-600 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950/40 cursor-pointer"
+                                title="Navegar hacia esta parada"
+                              >
+                                <Navigation className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleSelectLocation([stop.latitude, stop.longitude])}
+                              className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer flex-shrink-0"
+                              title="Centrar mapa"
+                            >
+                              <MapPin className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -366,6 +418,10 @@ function App() {
                   activeTab="dashboard" 
                   selectedCoordinates={selectedCoords}
                   selectedDayLabel={selectedDay}
+                  activeNavStop={activeNavStop}
+                  onStartNavigation={handleStartNavigation}
+                  onEndNavigation={handleEndNavigation}
+                  onCompleteAndNextStop={handleCompleteAndNextStop}
                 />
               </div>
             </div>
@@ -383,6 +439,8 @@ function App() {
                   onSelectStop={handleSelectLocation}
                   selectedDay={selectedDay}
                   onSelectDay={setSelectedDay}
+                  activeNavStop={activeNavStop}
+                  onStartNavigation={handleStartNavigation}
                   onRequestMapPick={(draft) => {
                     setStopDraftForPick(draft);
                     setTimeout(() => {
@@ -413,6 +471,10 @@ function App() {
                   onPickLocation={handleMapPick}
                   onCancelPickLocation={handleCancelMapPick}
                   pickedCoordinates={lastPickedPin}
+                  activeNavStop={activeNavStop}
+                  onStartNavigation={handleStartNavigation}
+                  onEndNavigation={handleEndNavigation}
+                  onCompleteAndNextStop={handleCompleteAndNextStop}
                 />
               </div>
             </div>

@@ -3,7 +3,7 @@ import {
   Plus, Edit2, Trash2, ArrowUp, ArrowDown, MapPin, 
   CheckSquare, Square, RefreshCw, X, Archive, Clock,
   Wand2, Share2, Download, Crosshair, Search, Sparkles, Check, Layers, PlusCircle,
-  Calendar, ChevronDown, UserPlus, ArrowLeft, Mail, Phone
+  Calendar, ChevronDown, UserPlus, ArrowLeft, Mail, Phone, Navigation
 } from 'lucide-react';
 import { addStop, updateStop, deleteStop, addHistory, addClient, type Stop, type Client } from '../services/firestore';
 import { 
@@ -23,6 +23,9 @@ interface StopListProps {
   onSelectStop: (coords: [number, number]) => void;
   selectedDay?: string;
   onSelectDay?: (day: string) => void;
+  // In-app navigation props
+  activeNavStop?: Stop | null;
+  onStartNavigation?: (stop: Stop) => void;
   onRequestMapPick?: (currentDraft: {
     editingStop: Stop | null;
     name: string;
@@ -71,6 +74,8 @@ export const StopList: React.FC<StopListProps> = ({
   onSelectStop,
   selectedDay: controlledDay,
   onSelectDay,
+  activeNavStop = null,
+  onStartNavigation,
   onRequestMapPick,
   pickedCoordsForStop,
   onClearPickedCoords,
@@ -1292,7 +1297,24 @@ export const StopList: React.FC<StopListProps> = ({
                   </div>
 
                   {/* Right: Action Buttons */}
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5">
+                    {onStartNavigation && !stop.completed && (
+                      <button
+                        onClick={() => onStartNavigation(stop)}
+                        className={`px-2.5 py-1.5 rounded-xl text-xs font-black flex items-center gap-1 transition-all cursor-pointer m3-surface-interactive ${
+                          activeNavStop?.id === stop.id
+                            ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30 ring-2 ring-blue-400 animate-pulse'
+                            : 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 border border-blue-200 dark:border-blue-900/60'
+                        }`}
+                        title={activeNavStop?.id === stop.id ? 'Navegación en curso hacia esta parada' : 'Iniciar navegación GPS in-app hacia esta parada'}
+                      >
+                        <Navigation className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">
+                          {activeNavStop?.id === stop.id ? 'En curso' : 'Navegar'}
+                        </span>
+                      </button>
+                    )}
+
                     <button
                       onClick={() => onSelectStop([stop.latitude, stop.longitude])}
                       className="p-2 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
