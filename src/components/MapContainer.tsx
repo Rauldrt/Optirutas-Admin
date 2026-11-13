@@ -1,12 +1,12 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, useMapEvents } from 'react-leaflet';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, Circle, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { updateStop, type Stop, type Client } from '../services/firestore';
-import { calculateRouteDistanceKm } from '../utils/geo';
+import { calculateRouteDistanceKm, calculateDistanceKm } from '../utils/geo';
 import { 
   Crosshair, Route as RouteIcon, X, MousePointerClick, Send, BoxSelect,
   Navigation, Locate, LocateFixed, Volume2, VolumeX, CheckCircle2, AlertCircle,
-  Maximize2, Minimize2
+  Maximize2, Minimize2, BellRing
 } from 'lucide-react';
 import { useGeolocation, speakInstruction } from '../hooks/useGeolocation';
 import { getStreetRoute, type RouteResult } from '../services/routing';
@@ -158,6 +158,67 @@ export const MapView: React.FC<MapViewProps> = ({
   // Fullscreen Driver Mode
   const mapWrapperRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Geofence Arrival Detection (75 meters radius)
+  const GEOFENCE_RADIUS_METERS = 75;
+  const [hasArrived, setHasArrived] = useState(false);
+  const notifiedArrivalStopIdRef = useRef<string | null>(null);
+  const [dismissedArrivalStopId, setDismissedArrivalStopId] = useState<string | null>(null);
+
+  // Compute straight-line distance in meters to active target stop
+  const distanceToTargetMeters = useMemo(() => {
+    if (!activeNavStop || !userCoords || activeNavStop.latitude === 0 || activeNavStop.longitude === 0) {
+      return null;
+    }
+    const km = calculateDistanceKm(
+      userCoords[0],
+      userCoords[1],
+      activeNavStop.latitude,
+      activeNavStop.longitude
+    );
+    return Math.round(km * 1000);
+  }, [activeNavStop, userCoords]);
+
+  // Trigger geofence arrival notification & vibration
+  useEffect(() => {
+    if (!activeNavStop || distanceToTargetMeters === null) {
+      setHasArrived(false);
+      return;
+    }
+
+    const isInside = distanceToTargetMeters <= GEOFENCE_RADIUS_METERS;
+
+    if (isInside) {
+      setHasArrived(true);
+
+      // Trigger alerts only once per stop arrival
+      if (notifiedArrivalStopIdRef.current !== activeNavStop.id) {
+        notifiedArrivalStopIdRef.current = activeNavStop.id;
+
+        // 1. Spoken audio notification
+        if (!isVoiceMuted) {
+          speakInstruction(`¡Has llegado a tu destino! ${activeNavStop.name}. Parada número ${activeNavStop.orderIndex}.`);
+        }
+
+        // 2. Haptic vibration pattern on mobile devices
+        if ('vibrate' in navigator) {
+          try {
+            navigator.vibrate([250, 100, 250, 100, 500]);
+          } catch {
+            // Browser ignored vibration
+          }
+        }
+      }
+    } else if (distanceToTargetMeters > GEOFENCE_RADIUS_METERS + 40) {
+      // Driver moved significantly away from geofence
+      setHasArrived(false);
+    }
+  }, [distanceToTargetMeters, activeNavStop, isVoiceMuted]);
+
+  // Reset dismissed arrival alert whenever activeNavStop changes
+  useEffect(() => {
+    setDismissedArrivalStopId(null);
+  }, [activeNavStop?.id]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -369,7 +430,23 @@ export const MapView: React.FC<MapViewProps> = ({
     });
   };
 
-  const createActiveNavStopIcon = (index: number) => {
+  const createActiveNavStopIcon = (index: number, isArrived = false) => {
+    if (isArrived) {
+      return L.divIcon({
+        className: 'custom-active-nav-stop-marker-arrived',
+        html: `
+          <div class="relative flex items-center justify-center">
+            <div class="absolute w-12 h-12 bg-emerald-500 rounded-full opacity-50 animate-ping"></div>
+            <div class="w-10 h-10 bg-gradient-to-tr from-emerald-500 to-teal-500 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center shadow-2xl shadow-emerald-500/70 text-white font-black text-sm">
+              📍
+            </div>
+          </div>
+        `,
+        iconSize: [40, 40],
+        iconAnchor: [20, 20]
+      });
+    }
+
     return L.divIcon({
       className: 'custom-active-nav-stop-marker',
       html: `
@@ -480,21 +557,31 @@ export const MapView: React.FC<MapViewProps> = ({
         <div className={`absolute top-3 left-3 right-3 z-[1000] pointer-events-auto transition-all ${
           isFullscreen ? 'sm:left-6 sm:right-6 sm:top-5' : 'sm:left-4 sm:right-4'
         }`}>
-          <div className={`bg-slate-900/95 dark:bg-slate-900/95 text-white shadow-2xl border border-blue-500/40 backdrop-blur-md flex items-center justify-between gap-3 animate-fade-in ${
-            isFullscreen ? 'px-5 py-4 rounded-3xl' : 'px-4 py-3 rounded-2xl'
-          }`}>
+          <div className={`bg-slate-900/95 dark:bg-slate-900/95 text-white shadow-2xl border backdrop-blur-md flex items-center justify-between gap-3 animate-fade-in ${
+            hasArrived ? 'border-emerald-500/60 ring-2 ring-emerald-500/30' : 'border-blue-500/40'
+          } ${isFullscreen ? 'px-5 py-4 rounded-3xl' : 'px-4 py-3 rounded-2xl'}`}>
             <div className="flex items-center gap-3.5 min-w-0">
-              <div className={`rounded-2xl bg-blue-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/30 ${
-                isFullscreen ? 'w-12 h-12' : 'w-10 h-10'
-              }`}>
-                <Navigation className={`text-white animate-pulse ${isFullscreen ? 'w-6 h-6' : 'w-5 h-5'}`} />
+              <div className={`rounded-2xl flex items-center justify-center flex-shrink-0 shadow-lg ${
+                hasArrived ? 'bg-emerald-500 shadow-emerald-500/30' : 'bg-blue-600 shadow-blue-500/30'
+              } ${isFullscreen ? 'w-12 h-12' : 'w-10 h-10'}`}>
+                {hasArrived ? (
+                  <BellRing className={`text-white animate-bounce ${isFullscreen ? 'w-6 h-6' : 'w-5 h-5'}`} />
+                ) : (
+                  <Navigation className={`text-white animate-pulse ${isFullscreen ? 'w-6 h-6' : 'w-5 h-5'}`} />
+                )}
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] sm:text-xs font-black text-blue-400 uppercase tracking-wider bg-blue-950/80 px-2 py-0.5 rounded-md border border-blue-800/50">
-                    {streetRoute?.steps?.[0]?.distanceMeters 
-                      ? `En ${Math.round(streetRoute.steps[0].distanceMeters)} m` 
-                      : 'Navegación Activa'}
+                  <span className={`text-[10px] sm:text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded-md border ${
+                    hasArrived
+                      ? 'text-emerald-300 bg-emerald-950/80 border-emerald-700/60 animate-pulse'
+                      : 'text-blue-400 bg-blue-950/80 border-blue-800/50'
+                  }`}>
+                    {hasArrived 
+                      ? '🎯 ¡LLEGASTE A DESTINO!' 
+                      : (streetRoute?.steps?.[0]?.distanceMeters 
+                        ? `En ${Math.round(streetRoute.steps[0].distanceMeters)} m` 
+                        : 'Navegación Activa')}
                   </span>
                   {isFullscreen && (
                     <span className="hidden sm:inline-flex items-center text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
@@ -505,7 +592,9 @@ export const MapView: React.FC<MapViewProps> = ({
                 <p className={`font-black text-white truncate mt-0.5 ${
                   isFullscreen ? 'text-base sm:text-xl' : 'text-sm'
                 }`}>
-                  {streetRoute?.steps?.[0]?.instruction || `Dirigiéndose a ${activeNavStop.name}`}
+                  {hasArrived 
+                    ? `Parada #${activeNavStop.orderIndex}: ${activeNavStop.name}` 
+                    : (streetRoute?.steps?.[0]?.instruction || `Dirigiéndose a ${activeNavStop.name}`)}
                 </p>
               </div>
             </div>
@@ -545,6 +634,59 @@ export const MapView: React.FC<MapViewProps> = ({
                   title="Salir de navegación"
                 >
                   <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Geofence Auto-Arrival Alert Card (triggers inside 75m of destination) */}
+      {activeNavStop && hasArrived && dismissedArrivalStopId !== activeNavStop.id && (
+        <div className={`absolute bottom-4 left-3 right-3 z-[1010] pointer-events-auto transition-all ${
+          isFullscreen ? 'sm:left-6 sm:right-6 sm:bottom-6' : 'sm:left-4 sm:right-4'
+        }`}>
+          <div className="bg-gradient-to-r from-emerald-950/95 via-slate-900/95 to-teal-950/95 text-white backdrop-blur-xl border-2 border-emerald-400/80 shadow-2xl shadow-emerald-500/30 rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in ring-4 ring-emerald-500/20">
+            <div className="flex items-center gap-3.5 w-full sm:w-auto">
+              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-emerald-500 text-white flex items-center justify-center flex-shrink-0 shadow-xl shadow-emerald-500/40">
+                <BellRing className="w-6 h-6 sm:w-7 sm:h-7 animate-bounce" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider bg-emerald-400 text-slate-950 px-2.5 py-0.5 rounded-full shadow-sm">
+                    📍 ¡LLEGASTE A DESTINO!
+                  </span>
+                  <span className="text-xs font-extrabold text-emerald-300">
+                    A {distanceToTargetMeters !== null ? `${distanceToTargetMeters} m` : 'pocos metros'}
+                  </span>
+                </div>
+                <h3 className="text-sm sm:text-lg font-black text-white truncate mt-1">
+                  Parada #{activeNavStop.orderIndex}: {activeNavStop.name}
+                </h3>
+                <p className="text-xs text-slate-300 truncate mt-0.5">
+                  {activeNavStop.address}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+              <button
+                type="button"
+                onClick={() => setDismissedArrivalStopId(activeNavStop.id)}
+                className="px-3.5 py-2.5 rounded-2xl text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800/80 transition-colors cursor-pointer"
+                title="Cerrar aviso y continuar navegando"
+              >
+                Aún no
+              </button>
+              {onCompleteAndNextStop && (
+                <button
+                  type="button"
+                  onClick={() => onCompleteAndNextStop(activeNavStop.id)}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black px-5 py-3 rounded-2xl text-xs sm:text-sm shadow-xl shadow-emerald-500/30 transition-all cursor-pointer m3-surface-interactive"
+                  title="Confirmar entrega de esta parada y pasar a la siguiente"
+                >
+                  <CheckCircle2 className="w-5 h-5" />
+                  <span>Confirmar Entrega y Siguiente</span>
                 </button>
               )}
             </div>
@@ -787,6 +929,21 @@ export const MapView: React.FC<MapViewProps> = ({
           />
         )}
 
+        {/* Geofence Arrival Zone Circle around active target stop */}
+        {activeNavStop && activeNavStop.latitude !== 0 && activeNavStop.longitude !== 0 && (
+          <Circle
+            center={[activeNavStop.latitude, activeNavStop.longitude]}
+            radius={GEOFENCE_RADIUS_METERS}
+            pathOptions={{
+              color: hasArrived ? '#10b981' : '#3b82f6',
+              fillColor: hasArrived ? '#10b981' : '#3b82f6',
+              fillOpacity: hasArrived ? 0.3 : 0.12,
+              weight: hasArrived ? 3 : 2,
+              dashArray: hasArrived ? undefined : '6, 6'
+            }}
+          />
+        )}
+
         {/* Live Driver Vehicle GPS Marker */}
         {userCoords && (
           <Marker 
@@ -907,7 +1064,7 @@ export const MapView: React.FC<MapViewProps> = ({
           let markerIcon = stop.completed 
             ? createCompletedStopIcon() 
             : isStopActiveNav 
-              ? createActiveNavStopIcon(stop.orderIndex) 
+              ? createActiveNavStopIcon(stop.orderIndex, hasArrived) 
               : createPendingStopIcon(stop.orderIndex);
 
           return (
