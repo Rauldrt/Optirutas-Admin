@@ -5,7 +5,8 @@ import { updateStop, type Stop, type Client } from '../services/firestore';
 import { calculateRouteDistanceKm } from '../utils/geo';
 import { 
   Crosshair, Route as RouteIcon, X, MousePointerClick, Send, BoxSelect,
-  Navigation, Locate, LocateFixed, Volume2, VolumeX, CheckCircle2, AlertCircle
+  Navigation, Locate, LocateFixed, Volume2, VolumeX, CheckCircle2, AlertCircle,
+  Maximize2, Minimize2
 } from 'lucide-react';
 import { useGeolocation, speakInstruction } from '../hooks/useGeolocation';
 import { getStreetRoute, type RouteResult } from '../services/routing';
@@ -16,6 +17,18 @@ const ChangeMapView: React.FC<{ center: [number, number]; zoom?: number }> = ({ 
   useEffect(() => {
     map.setView(center, zoom ?? map.getZoom());
   }, [center, zoom, map]);
+  return null;
+};
+
+// Component to recalculate Leaflet map viewport dimensions on resize or fullscreen change
+const MapResizeHandler: React.FC<{ trigger: any }> = ({ trigger }) => {
+  const map = useMap();
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      map.invalidateSize();
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [trigger, map]);
   return null;
 };
 
@@ -141,6 +154,67 @@ export const MapView: React.FC<MapViewProps> = ({
   const [streetRoute, setStreetRoute] = useState<RouteResult | null>(null);
   const [isVoiceMuted, setIsVoiceMuted] = useState(false);
   const lastSpokenInstructionRef = useRef<string>('');
+
+  // Fullscreen Driver Mode
+  const mapWrapperRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isCurrentlyFullscreen = !!(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).mozFullScreenElement ||
+        (document as any).msFullscreenElement
+      );
+      setIsFullscreen(isCurrentlyFullscreen);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+    };
+  }, []);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (!isFullscreen) {
+        if (mapWrapperRef.current) {
+          if (mapWrapperRef.current.requestFullscreen) {
+            await mapWrapperRef.current.requestFullscreen();
+          } else if ((mapWrapperRef.current as any).webkitRequestFullscreen) {
+            await (mapWrapperRef.current as any).webkitRequestFullscreen();
+          } else if ((mapWrapperRef.current as any).msRequestFullscreen) {
+            await (mapWrapperRef.current as any).msRequestFullscreen();
+          } else {
+            setIsFullscreen(true);
+          }
+        } else {
+          setIsFullscreen(true);
+        }
+      } else {
+        if (document.fullscreenElement || (document as any).webkitFullscreenElement) {
+          if (document.exitFullscreen) {
+            await document.exitFullscreen();
+          } else if ((document as any).webkitExitFullscreen) {
+            await (document as any).webkitExitFullscreen();
+          }
+        } else {
+          setIsFullscreen(false);
+        }
+      }
+    } catch (err) {
+      console.warn('Fullscreen toggle failed, falling back to CSS fullscreen:', err);
+      setIsFullscreen(prev => !prev);
+    }
+  };
 
   // Start GPS tracking automatically when entering navigation mode
   useEffect(() => {
@@ -372,11 +446,18 @@ export const MapView: React.FC<MapViewProps> = ({
   };
 
   return (
-    <div className={`w-full h-full relative rounded-3xl overflow-hidden shadow-2xl border ${
-      isPickingLocation 
-        ? 'border-purple-500 ring-4 ring-purple-500/30 cursor-crosshair' 
-        : 'border-slate-200/50 dark:border-slate-800/50'
-    }`}>
+    <div 
+      ref={mapWrapperRef}
+      className={`w-full h-full relative overflow-hidden transition-all duration-300 ${
+        isFullscreen 
+          ? 'fixed inset-0 z-[9999] rounded-none border-0 shadow-none bg-slate-950 w-screen h-screen' 
+          : `rounded-3xl shadow-2xl border ${
+              isPickingLocation 
+                ? 'border-purple-500 ring-4 ring-purple-500/30 cursor-crosshair' 
+                : 'border-slate-200/50 dark:border-slate-800/50'
+            }`
+      }`}
+    >
       {/* Picking Mode Floating Banner */}
       {isPickingLocation && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] bg-purple-600 text-white px-4 py-2 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-extrabold animate-bounce">
@@ -396,19 +477,34 @@ export const MapView: React.FC<MapViewProps> = ({
 
       {/* In-App Turn-by-Turn Navigation: Top Maneuver HUD Banner */}
       {activeNavStop && (
-        <div className="absolute top-3 left-3 right-3 sm:left-4 sm:right-4 z-[1000] pointer-events-auto">
-          <div className="bg-slate-900/95 dark:bg-slate-900/95 text-white px-4 py-3 rounded-2xl shadow-2xl border border-blue-500/40 backdrop-blur-md flex items-center justify-between gap-3 animate-fade-in">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/30">
-                <Navigation className="w-5 h-5 text-white animate-pulse" />
+        <div className={`absolute top-3 left-3 right-3 z-[1000] pointer-events-auto transition-all ${
+          isFullscreen ? 'sm:left-6 sm:right-6 sm:top-5' : 'sm:left-4 sm:right-4'
+        }`}>
+          <div className={`bg-slate-900/95 dark:bg-slate-900/95 text-white shadow-2xl border border-blue-500/40 backdrop-blur-md flex items-center justify-between gap-3 animate-fade-in ${
+            isFullscreen ? 'px-5 py-4 rounded-3xl' : 'px-4 py-3 rounded-2xl'
+          }`}>
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className={`rounded-2xl bg-blue-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/30 ${
+                isFullscreen ? 'w-12 h-12' : 'w-10 h-10'
+              }`}>
+                <Navigation className={`text-white animate-pulse ${isFullscreen ? 'w-6 h-6' : 'w-5 h-5'}`} />
               </div>
               <div className="min-w-0">
-                <p className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">
-                  {streetRoute?.steps?.[0]?.distanceMeters 
-                    ? `En ${Math.round(streetRoute.steps[0].distanceMeters)} m` 
-                    : 'Navegación Activa'}
-                </p>
-                <p className="text-sm font-black text-white truncate">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] sm:text-xs font-black text-blue-400 uppercase tracking-wider bg-blue-950/80 px-2 py-0.5 rounded-md border border-blue-800/50">
+                    {streetRoute?.steps?.[0]?.distanceMeters 
+                      ? `En ${Math.round(streetRoute.steps[0].distanceMeters)} m` 
+                      : 'Navegación Activa'}
+                  </span>
+                  {isFullscreen && (
+                    <span className="hidden sm:inline-flex items-center text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                      Modo Conductor
+                    </span>
+                  )}
+                </div>
+                <p className={`font-black text-white truncate mt-0.5 ${
+                  isFullscreen ? 'text-base sm:text-xl' : 'text-sm'
+                }`}>
                   {streetRoute?.steps?.[0]?.instruction || `Dirigiéndose a ${activeNavStop.name}`}
                 </p>
               </div>
@@ -418,7 +514,7 @@ export const MapView: React.FC<MapViewProps> = ({
               <button
                 type="button"
                 onClick={() => setIsVoiceMuted(prev => !prev)}
-                className={`p-2 rounded-xl transition-colors cursor-pointer ${
+                className={`p-2.5 rounded-xl transition-colors cursor-pointer ${
                   isVoiceMuted 
                     ? 'text-slate-400 hover:bg-slate-800' 
                     : 'text-blue-400 bg-blue-950/60 hover:bg-blue-900/60'
@@ -428,11 +524,24 @@ export const MapView: React.FC<MapViewProps> = ({
                 {isVoiceMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
               </button>
 
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                className={`p-2.5 rounded-xl transition-colors cursor-pointer ${
+                  isFullscreen 
+                    ? 'text-emerald-400 bg-emerald-950/60 hover:bg-emerald-900/60' 
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+                title={isFullscreen ? 'Salir de Modo Conductor Pantalla Completa' : 'Modo Conductor Pantalla Completa'}
+              >
+                {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+              </button>
+
               {onEndNavigation && (
                 <button
                   type="button"
                   onClick={onEndNavigation}
-                  className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+                  className="p-2.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
                   title="Salir de navegación"
                 >
                   <X className="w-4 h-4" />
@@ -445,25 +554,35 @@ export const MapView: React.FC<MapViewProps> = ({
 
       {/* In-App Turn-by-Turn Navigation: Bottom Destination & Controls HUD Bar */}
       {activeNavStop && (
-        <div className="absolute bottom-4 left-3 right-3 sm:left-4 sm:right-4 z-[1000] pointer-events-auto">
-          <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/80 dark:border-slate-800/80 px-4 py-3 rounded-3xl shadow-2xl flex flex-wrap items-center justify-between gap-3 animate-fade-in">
+        <div className={`absolute bottom-4 left-3 right-3 z-[1000] pointer-events-auto transition-all ${
+          isFullscreen ? 'sm:left-6 sm:right-6 sm:bottom-6' : 'sm:left-4 sm:right-4'
+        }`}>
+          <div className={`bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/80 dark:border-slate-800/80 shadow-2xl flex flex-wrap items-center justify-between gap-3 animate-fade-in ${
+            isFullscreen ? 'px-5 py-4 rounded-3xl' : 'px-4 py-3 rounded-3xl'
+          }`}>
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-2xl bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-black text-sm flex items-center justify-center shadow-inner">
+              <div className={`rounded-2xl bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-black flex items-center justify-center shadow-inner ${
+                isFullscreen ? 'w-11 h-11 text-base' : 'w-9 h-9 text-sm'
+              }`}>
                 #{activeNavStop.orderIndex}
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h4 className="text-xs font-black text-slate-900 dark:text-white truncate max-w-[160px] sm:max-w-xs">
+                  <h4 className={`font-black text-slate-900 dark:text-white truncate ${
+                    isFullscreen ? 'text-sm sm:text-base max-w-[200px] sm:max-w-md' : 'text-xs max-w-[160px] sm:max-w-xs'
+                  }`}>
                     {activeNavStop.name}
                   </h4>
                   <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
                     En Curso
                   </span>
                 </div>
-                <div className="flex items-center gap-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 mt-0.5">
+                <div className={`flex items-center gap-2 font-bold text-slate-500 dark:text-slate-400 mt-0.5 ${
+                  isFullscreen ? 'text-xs sm:text-sm' : 'text-[11px]'
+                }`}>
                   {streetRoute && (
                     <>
-                      <span className="text-slate-900 dark:text-white font-extrabold">
+                      <span className="text-slate-900 dark:text-white font-black">
                         {streetRoute.durationMinutes} min
                       </span>
                       <span>•</span>
@@ -473,7 +592,7 @@ export const MapView: React.FC<MapViewProps> = ({
                   {speedKmH !== null && speedKmH > 0 && (
                     <>
                       <span>•</span>
-                      <span className="text-emerald-600 dark:text-emerald-400">{speedKmH} km/h</span>
+                      <span className="text-emerald-600 dark:text-emerald-400 font-black">{speedKmH} km/h</span>
                     </>
                   )}
                 </div>
@@ -485,10 +604,12 @@ export const MapView: React.FC<MapViewProps> = ({
                 <button
                   type="button"
                   onClick={() => onCompleteAndNextStop(activeNavStop.id)}
-                  className="flex items-center gap-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white px-4 py-2.5 rounded-2xl text-xs font-black shadow-lg shadow-emerald-500/25 transition-all cursor-pointer m3-surface-interactive"
+                  className={`flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-2xl font-black shadow-lg shadow-emerald-500/25 transition-all cursor-pointer m3-surface-interactive ${
+                    isFullscreen ? 'px-6 py-3.5 text-sm sm:text-base' : 'px-4 py-2.5 text-xs'
+                  }`}
                   title="Marcar parada como completada y calcular ruta a la siguiente parada"
                 >
-                  <CheckCircle2 className="w-4 h-4" />
+                  <CheckCircle2 className={isFullscreen ? "w-5 h-5" : "w-4 h-4"} />
                   <span>Completar y Siguiente</span>
                 </button>
               )}
@@ -497,12 +618,14 @@ export const MapView: React.FC<MapViewProps> = ({
         </div>
       )}
 
-      {/* Floating GPS Recenter & Tracking Button */}
-      <div className="absolute top-3 left-3 z-[990] pointer-events-auto flex flex-col gap-2">
+      {/* Floating Controls: GPS & Fullscreen Driver Mode */}
+      <div className={`absolute left-3 z-[990] pointer-events-auto flex items-center gap-2 ${
+        activeNavStop ? 'top-20 sm:top-22' : 'top-3'
+      }`}>
         <button
           type="button"
           onClick={handleToggleGps}
-          className={`p-2.5 rounded-2xl shadow-xl border backdrop-blur-md transition-all cursor-pointer flex items-center gap-2 text-xs font-extrabold ${
+          className={`p-2.5 rounded-2xl shadow-xl border backdrop-blur-md transition-all cursor-pointer flex items-center gap-2 text-xs font-extrabold m3-surface-interactive ${
             isTracking
               ? 'bg-blue-600 text-white border-blue-500 shadow-blue-500/30 ring-2 ring-blue-400/40'
               : 'bg-white/90 dark:bg-slate-900/90 text-slate-700 dark:text-slate-300 border-slate-200/80 dark:border-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -512,6 +635,22 @@ export const MapView: React.FC<MapViewProps> = ({
           {isTracking ? <LocateFixed className="w-4 h-4 text-white animate-pulse" /> : <Locate className="w-4 h-4" />}
           <span className="hidden sm:inline">
             {isTracking ? (speedKmH !== null && speedKmH > 0 ? `${speedKmH} km/h` : 'GPS Activo') : 'Mi Ubicación'}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          className={`p-2.5 rounded-2xl shadow-xl border backdrop-blur-md transition-all cursor-pointer flex items-center gap-2 text-xs font-extrabold m3-surface-interactive ${
+            isFullscreen
+              ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-500/30 ring-2 ring-emerald-400/40'
+              : 'bg-white/90 dark:bg-slate-900/90 text-slate-700 dark:text-slate-300 border-slate-200/80 dark:border-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+          title={isFullscreen ? 'Salir de Modo Conductor (Pantalla Completa)' : 'Activar Modo Conductor (Pantalla Completa)'}
+        >
+          {isFullscreen ? <Minimize2 className="w-4 h-4 text-white" /> : <Maximize2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />}
+          <span className="hidden sm:inline">
+            {isFullscreen ? 'Salir Pantalla Completa' : 'Modo Conductor'}
           </span>
         </button>
       </div>
@@ -592,6 +731,7 @@ export const MapView: React.FC<MapViewProps> = ({
         style={{ width: '100%', height: '100%' }}
       >
         <ChangeMapView center={mapCenter} zoom={selectedCoordinates ? 15 : undefined} />
+        <MapResizeHandler trigger={isFullscreen} />
         <MapClickHandler enabled={isPickingLocation} onPick={onPickLocation} />
 
         {/* Clients Tab: Top-Right Interactive Selection Controls */}
