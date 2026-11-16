@@ -300,27 +300,6 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col p-3 sm:p-5 max-w-4xl w-full mx-auto space-y-4">
-        {/* Route Progress Bar */}
-        <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-lg space-y-2">
-          <div className="flex items-center justify-between text-xs font-bold">
-            <span className="text-slate-300 flex items-center gap-1.5">
-              <ListOrdered className="w-4 h-4 text-purple-400" />
-              <span>Progreso del Día ({todayName})</span>
-            </span>
-            <span className="text-purple-400 font-extrabold text-sm">
-              {completedCount} / {totalCount} ({progressPercent}%)
-            </span>
-          </div>
-
-          {/* Progress bar */}
-          <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
-            <div 
-              className="h-full bg-gradient-to-r from-purple-500 to-emerald-500 transition-all duration-500"
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
-        </div>
-
         {/* Current Stop Hero Card (Distraction-Free) */}
         {currentStop ? (
           <div className="bg-gradient-to-b from-slate-900 to-slate-925 border-2 border-purple-500/30 rounded-3xl p-5 shadow-2xl space-y-4 relative overflow-hidden">
@@ -501,8 +480,8 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
           </div>
         )}
 
-        {/* Map View Embedded in Driver Screen */}
-        <div className="h-[360px] sm:h-[450px] rounded-3xl overflow-hidden border border-slate-800 shadow-xl relative">
+        {/* Map View Embedded in Driver Screen (Increased height for clearer driving navigation) */}
+        <div className="h-[480px] sm:h-[580px] md:h-[620px] rounded-3xl overflow-hidden border border-slate-800 shadow-xl relative">
           <MapView 
             stops={driverStops} 
             clients={[]} 
