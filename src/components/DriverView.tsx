@@ -8,7 +8,7 @@ import {
   type Stop 
 } from '../services/firestore';
 import { useGeolocation } from '../hooks/useGeolocation';
-import { getCurrentDayNameEs, calculateDistanceKm, formatDwellDuration } from '../utils/geo';
+import { getCurrentDayNameEs, calculateDistanceKm } from '../utils/geo';
 import { MapView } from './MapContainer';
 import { 
   Truck, 
@@ -20,9 +20,7 @@ import {
   ListOrdered, 
   MessageCircle,
   ChevronDown,
-  Download,
-  Timer,
-  Clock
+  Download
 } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { PWAInstallModal } from './PWAInstallModal';
@@ -115,54 +113,15 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
     );
   }, [currentStop, userCoords]);
 
-  // Current timestamp tick for live dwell timer on site
-  const [currentTick, setCurrentTick] = useState<number>(Date.now());
-  useEffect(() => {
-    if (!currentStop?.arrivedAt || currentStop.completed) return;
-    const interval = setInterval(() => {
-      setCurrentTick(Date.now());
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [currentStop?.id, currentStop?.arrivedAt, currentStop?.completed]);
-
-  // Auto-detect arrival by proximity geofence (within 75m)
+  // Auto-detect arrival by proximity geofence (within 75m) silently in background
   useEffect(() => {
     if (!isOnDuty || !currentStop || currentStop.completed || currentStop.arrivedAt) return;
     if (distanceToCurrentStopKm !== null && distanceToCurrentStopKm <= 0.075) {
       updateStop(currentStop.id, {
         arrivedAt: Date.now()
       }).catch(console.error);
-
-      if ('vibrate' in navigator) {
-        try { navigator.vibrate([250, 100, 250]); } catch {}
-      }
     }
   }, [isOnDuty, currentStop?.id, currentStop?.arrivedAt, currentStop?.completed, distanceToCurrentStopKm]);
-
-  const handleMarkArrival = async (stopId: string) => {
-    try {
-      await updateStop(stopId, {
-        arrivedAt: Date.now()
-      });
-      if ('vibrate' in navigator) {
-        try { navigator.vibrate([150]); } catch {}
-      }
-    } catch (err) {
-      console.error('Error al marcar llegada:', err);
-    }
-  };
-
-  const formatLiveTimer = (arrivedAt: number, now: number) => {
-    const diffSecs = Math.max(0, Math.floor((now - arrivedAt) / 1000));
-    const mins = Math.floor(diffSecs / 60);
-    const secs = diffSecs % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const formatClockTime = (millis?: number) => {
-    if (!millis) return '';
-    return new Date(millis).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-  };
 
   const handleCompleteStop = async (stopId: string) => {
     try {
@@ -244,25 +203,17 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
       });
 
       // 2. Format WhatsApp report
-      const stopDetails = completed.map(s => {
-        const dwellStr = formatDwellDuration(s.dwellTimeMinutes, s.dwellTimeSeconds);
-        const timeStr = s.completedAt ? formatClockTime(s.completedAt) : '';
-        return `  • ${s.name}${dwellStr ? ` (${dwellStr} en cliente)` : ''}${timeStr ? ` [${timeStr}]` : ''}`;
-      });
-
       const msg = [
         `📋 *Reporte de Cierre de Jornada - Optirutas*`,
         `🚚 *Móvil:* ${vehicle.name} ${vehicle.plate ? `(${vehicle.plate})` : ''}`,
         `👤 *Chofer:* ${vehicle.driverName}`,
         `📅 *Fecha:* ${todayName}, ${new Date().toLocaleDateString('es-ES')}`,
         `✅ *Entregas Realizadas:* ${completed.length} de ${driverStops.length} (${progressPercent}%)`,
-        avgDwellMins > 0 ? `⏱️ *Tiempo Promedio en Cliente:* ~${avgDwellMins} min` : null,
-        stopDetails.length > 0 ? `\n📦 *Detalle de Entregas:*\n${stopDetails.join('\n')}` : null,
         pending.length > 0 
-          ? `\n⚠️ *Pendientes:* ${pending.map(s => s.name).join(', ')}` 
-          : `\n🎉 *Estado:* ¡Todas las entregas completadas con éxito!`,
-        `\n⏱️ *Hora Cierre:* ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-      ].filter(Boolean).join('\n');
+          ? `⚠️ *Pendientes:* ${pending.map(s => s.name).join(', ')}` 
+          : `🎉 *Estado:* ¡Todas las entregas completadas con éxito!`,
+        `⏱️ *Hora:* ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+      ].join('\n');
 
       // 3. Stop GPS and update status
       setIsOnDuty(false);
@@ -481,24 +432,11 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
                                 {stop.completed ? '✓' : stop.orderIndex}
                               </span>
                               <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <p className={`text-xs font-bold truncate ${
-                                    stop.completed ? 'line-through text-slate-400' : 'text-slate-100'
-                                  }`}>
-                                    {stop.name}
-                                  </p>
-                                  {stop.completed && (stop.dwellTimeMinutes !== undefined || (stop.completedAt && stop.arrivedAt)) && (
-                                    <span className="text-[10px] font-extrabold text-emerald-400 bg-emerald-950/60 border border-emerald-800/60 px-1.5 py-0.5 rounded-md flex items-center gap-1 flex-shrink-0">
-                                      <Timer className="w-2.5 h-2.5" />
-                                      <span>{formatDwellDuration(stop.dwellTimeMinutes, stop.dwellTimeSeconds)}</span>
-                                    </span>
-                                  )}
-                                  {!stop.completed && stop.arrivedAt && (
-                                    <span className="text-[10px] font-extrabold text-purple-300 bg-purple-950/60 border border-purple-800/60 px-1.5 py-0.5 rounded-md flex items-center gap-1 flex-shrink-0 animate-pulse">
-                                      <span>En atención</span>
-                                    </span>
-                                  )}
-                                </div>
+                                <p className={`text-xs font-bold truncate ${
+                                  stop.completed ? 'line-through text-slate-400' : 'text-slate-100'
+                                }`}>
+                                  {stop.name}
+                                </p>
                                 <p className="text-[10px] text-slate-400 truncate">
                                   {stop.address}
                                 </p>
@@ -523,60 +461,14 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
               </div>
             </div>
 
-            {/* Arrival & Dwell Time Banner (Permanencia en Cliente) */}
-            {currentStop.arrivedAt ? (
-              <div className="bg-gradient-to-r from-emerald-950/80 via-teal-950/70 to-slate-900/90 border border-emerald-500/40 rounded-2xl p-3.5 flex items-center justify-between gap-3 shadow-lg animate-fade-in">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-center text-emerald-400 flex-shrink-0">
-                    <Timer className="w-5 h-5 animate-pulse" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 text-xs font-black text-emerald-300">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                      <span>En Cliente (Descarga / Cobro)</span>
-                    </div>
-                    <p className="text-[11px] text-slate-300 truncate">
-                      Llegada: <b>{formatClockTime(currentStop.arrivedAt)}</b>
-                    </p>
-                  </div>
-                </div>
-
-                <div className="text-right flex-shrink-0 bg-slate-900/90 border border-emerald-500/40 px-3.5 py-1.5 rounded-xl shadow-inner">
-                  <span className="text-[9px] text-emerald-400/90 font-extrabold block uppercase tracking-wider">Demora</span>
-                  <span className="text-sm font-black text-emerald-300 font-mono tracking-wider">
-                    {formatLiveTimer(currentStop.arrivedAt, currentTick)}
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center justify-between gap-2 p-3 rounded-2xl bg-slate-950/60 border border-slate-800 text-xs">
-                <div className="flex items-center gap-2 text-slate-400 min-w-0">
-                  <Clock className="w-4 h-4 text-purple-400 flex-shrink-0" />
-                  <span className="truncate text-[11px]">
-                    {distanceToCurrentStopKm !== null && distanceToCurrentStopKm <= 0.075 
-                      ? 'Llegada detectada por GPS' 
-                      : 'Auto-detecta llegada a <75m'}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleMarkArrival(currentStop.id)}
-                  className="px-3.5 py-1.5 bg-purple-600/30 hover:bg-purple-600 text-purple-200 hover:text-white border border-purple-500/40 rounded-xl font-black text-[11px] transition-all cursor-pointer flex items-center gap-1.5 flex-shrink-0 shadow-sm"
-                >
-                  <MapPin className="w-3.5 h-3.5 text-purple-400" />
-                  <span>Marcar Llegada</span>
-                </button>
-              </div>
-            )}
-
-            {/* Huge Touch Action Button: Confirm Delivery & Departure */}
+            {/* Huge Touch Action Button: Confirm Delivery */}
             <button
               type="button"
               onClick={() => handleCompleteStop(currentStop.id)}
               className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-base sm:text-lg shadow-xl shadow-emerald-600/30 flex items-center justify-center gap-3 transition-all cursor-pointer active:scale-98"
             >
               <CheckCircle2 className="w-6 h-6 text-white" />
-              <span>✓ Confirmar Entrega y Salida</span>
+              <span>✓ Confirmar Entrega y Siguiente</span>
             </button>
           </div>
         ) : (
