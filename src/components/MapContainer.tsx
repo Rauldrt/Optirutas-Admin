@@ -1,12 +1,12 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, Circle, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
-import { updateStop, type Stop, type Client, type Vehicle } from '../services/firestore';
-import { calculateRouteDistanceKm, calculateDistanceKm } from '../utils/geo';
+import { updateStop, addStop, type Stop, type Client, type Vehicle } from '../services/firestore';
+import { calculateRouteDistanceKm, calculateDistanceKm, getCurrentDayNameEs } from '../utils/geo';
 import { 
   Crosshair, Route as RouteIcon, X, MousePointerClick, Send, BoxSelect,
   Navigation, Locate, LocateFixed, Volume2, VolumeX, CheckCircle2, AlertCircle,
-  Maximize2, Minimize2, BellRing
+  Maximize2, Minimize2, BellRing, Users
 } from 'lucide-react';
 import { useGeolocation, speakInstruction } from '../hooks/useGeolocation';
 import { getStreetRoute, type RouteResult } from '../services/routing';
@@ -140,6 +140,11 @@ export const MapView: React.FC<MapViewProps> = ({
   const [zoom, setZoom] = useState<number>(13);
   // Quick-select mode on Clients map: clicking a marker immediately toggles selection
   const [quickMapSelectMode, setQuickMapSelectMode] = useState<boolean>(true);
+
+  // Superimposed view: Show All Clients on the Route Map
+  const [showAllClientsOverlay, setShowAllClientsOverlay] = useState<boolean>(false);
+  const [addingClientId, setAddingClientId] = useState<string | null>(null);
+  const todayName = getCurrentDayNameEs();
 
   // In-App Turn-by-Turn Navigation & GPS Tracking
   const { 
@@ -403,6 +408,23 @@ export const MapView: React.FC<MapViewProps> = ({
     });
   };
 
+  const createOverlayClientIcon = () => {
+    return L.divIcon({
+      className: 'custom-overlay-client-marker',
+      html: `
+        <div class="relative flex items-center justify-center group cursor-pointer hover:scale-125 transition-transform" title="Cliente fuera de ruta">
+          <div class="w-6 h-6 bg-gradient-to-tr from-teal-600 to-cyan-500 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center shadow-lg shadow-teal-500/50 text-white">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+          </div>
+        </div>
+      `,
+      iconSize: [24, 24],
+      iconAnchor: [12, 12]
+    });
+  };
+
   const createCompletedStopIcon = () => {
     return L.divIcon({
       className: 'custom-completed-stop-marker',
@@ -565,6 +587,51 @@ export const MapView: React.FC<MapViewProps> = ({
   const selectedClientsPolylineCoords = selectedClientsOrdered.map(
     c => [c.latitude, c.longitude] as [number, number]
   );
+
+  // Set of coordinates or names already present in today's active route
+  const routeLocationKeys = useMemo(() => {
+    const keys = new Set<string>();
+    sortedStops.forEach(s => {
+      keys.add(`${s.latitude.toFixed(4)},${s.longitude.toFixed(4)}`);
+      keys.add(s.name.trim().toLowerCase());
+    });
+    return keys;
+  }, [sortedStops]);
+
+  // Clients from directory that are NOT part of today's active route
+  const nonRouteClients = useMemo(() => {
+    return clients.filter(c => {
+      if (!c.latitude || !c.longitude || c.latitude === 0 || c.longitude === 0) return false;
+      const coordKey = `${c.latitude.toFixed(4)},${c.longitude.toFixed(4)}`;
+      const nameKey = c.name.trim().toLowerCase();
+      return !routeLocationKeys.has(coordKey) && !routeLocationKeys.has(nameKey);
+    });
+  }, [clients, routeLocationKeys]);
+
+  const handleAddClientToActiveDay = async (client: Client) => {
+    setAddingClientId(client.id);
+    try {
+      const dayName = selectedDayLabel && selectedDayLabel !== 'Todos' ? selectedDayLabel : todayName;
+      const existingForDay = stops.filter(s => s.deliveryDay.toLowerCase() === dayName.toLowerCase());
+      const nextOrder = existingForDay.length > 0 ? Math.max(...existingForDay.map(s => s.orderIndex)) + 1 : 1;
+
+      await addStop({
+        name: client.name,
+        address: client.address || 'Sin dirección',
+        latitude: client.latitude,
+        longitude: client.longitude,
+        completed: false,
+        orderIndex: nextOrder,
+        deliveryDay: dayName,
+        mapLink: client.mapLink || `https://www.google.com/maps?q=${client.latitude},${client.longitude}`
+      });
+    } catch (err) {
+      console.error('Error adding client to route:', err);
+      alert('Error al agregar el cliente a la ruta.');
+    } finally {
+      setAddingClientId(null);
+    }
+  };
 
   const totalDistanceKm = activeTab !== 'clients' ? calculateRouteDistanceKm(sortedStops) : 0;
 
@@ -854,6 +921,30 @@ export const MapView: React.FC<MapViewProps> = ({
             {isFullscreen ? 'Salir Pantalla Completa' : 'Modo Conductor'}
           </span>
         </button>
+
+        {/* Superimposed Map View Toggle: Show all clients + active route */}
+        {!activeNavStop && (
+          <button
+            type="button"
+            onClick={() => setShowAllClientsOverlay(prev => !prev)}
+            className={`p-2.5 rounded-2xl shadow-xl border backdrop-blur-md transition-all cursor-pointer flex items-center gap-2 text-xs font-extrabold m3-surface-interactive ${
+              showAllClientsOverlay
+                ? 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white border-teal-500 shadow-teal-500/30 ring-2 ring-teal-400/40'
+                : 'bg-white/90 dark:bg-slate-900/90 text-slate-700 dark:text-slate-300 border-slate-200/80 dark:border-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+            title={showAllClientsOverlay ? 'Ocultar clientes fuera de ruta' : 'Superponer todos los clientes sobre la ruta del día'}
+          >
+            <Users className="w-4 h-4" />
+            <span className="hidden sm:inline">
+              {showAllClientsOverlay ? 'Ruta + Clientes' : 'Superponer Clientes'}
+            </span>
+            {showAllClientsOverlay && nonRouteClients.length > 0 && (
+              <span className="bg-white/20 text-white text-[10px] px-1.5 py-0.5 rounded-full font-black">
+                +{nonRouteClients.length}
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
       {/* GPS Error Notification if permissions denied */}
@@ -894,6 +985,13 @@ export const MapView: React.FC<MapViewProps> = ({
           <span className="border-l border-slate-200 dark:border-slate-700 pl-2.5 font-bold text-slate-500 dark:text-slate-400">
             {sortedStops.filter(s => s.completed).length}/{sortedStops.length} entregadas
           </span>
+
+          {showAllClientsOverlay && (
+            <div className="flex items-center gap-1.5 text-teal-600 dark:text-teal-400 font-extrabold border-l border-slate-200 dark:border-slate-700 pl-2.5">
+              <Users className="w-3.5 h-3.5" />
+              <span>+{nonRouteClients.length} fuera de ruta</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -1093,7 +1191,7 @@ export const MapView: React.FC<MapViewProps> = ({
         })}
 
         {/* Draw Route Polylines: Independent colored lines per vehicle */}
-        {!activeNavStop && activeTab !== 'clients' && (
+        {!activeNavStop && (activeTab !== 'clients' || showAllClientsOverlay) && (
           vehicleRoutes.length > 0 ? (
             vehicleRoutes.map((vRoute) => (
               <Polyline 
@@ -1126,6 +1224,66 @@ export const MapView: React.FC<MapViewProps> = ({
             dashArray="6, 6"
           />
         )}
+
+        {/* Render Non-Route Clients Overlay (Superimposed view on Stops/Dashboard tabs) */}
+        {activeTab !== 'clients' && showAllClientsOverlay && nonRouteClients.map((client) => {
+          if (client.latitude === 0 || client.longitude === 0) return null;
+          const isAdding = addingClientId === client.id;
+
+          return (
+            <Marker
+              key={`overlay-client-${client.id}`}
+              position={[client.latitude, client.longitude]}
+              icon={createOverlayClientIcon()}
+              zIndexOffset={50}
+            >
+              <Popup>
+                <div className="p-2 text-slate-800 dark:text-slate-100 min-w-[210px]">
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-500 text-white">
+                      Cliente en Base
+                    </span>
+                    {client.neighborhood && (
+                      <span className="text-[10px] font-semibold text-slate-500 truncate max-w-[100px]">
+                        {client.neighborhood}
+                      </span>
+                    )}
+                  </div>
+
+                  <h3 className="font-extrabold text-sm mb-1">{client.name}</h3>
+                  <p className="text-xs mb-2"><b>Dirección:</b> {client.address}</p>
+                  {client.phone && <p className="text-xs mb-2"><b>Tel:</b> {client.phone}</p>}
+
+                  <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800 flex flex-col gap-2">
+                    <button
+                      type="button"
+                      disabled={isAdding}
+                      onClick={() => handleAddClientToActiveDay(client)}
+                      className="w-full flex items-center justify-center gap-1.5 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white text-xs font-bold py-1.5 px-3 rounded-xl shadow-md transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      {isAdding ? (
+                        <span>Agregando a ruta...</span>
+                      ) : (
+                        <span>➕ Agregar a Ruta de {selectedDayLabel || 'Hoy'}</span>
+                      )}
+                    </button>
+
+                    {client.mapLink && (
+                      <a
+                        href={client.mapLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[10px] text-center font-bold text-indigo-600 hover:underline"
+                      >
+                        Abrir en Google Maps ↗
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </Popup>
+            </Marker>
+          );
+        })}
 
         {/* Render Clients on Map */}
         {activeTab === 'clients' && clients.map(client => {
@@ -1192,7 +1350,7 @@ export const MapView: React.FC<MapViewProps> = ({
         })}
 
         {/* Render Stops on Map */}
-        {activeTab !== 'clients' && sortedStops.map((stop) => {
+        {(activeTab !== 'clients' || showAllClientsOverlay) && sortedStops.map((stop) => {
           const isStopActiveNav = activeNavStop?.id === stop.id;
           const assignedVehicle = stop.vehicleId ? vehicles.find(v => v.id === stop.vehicleId) : null;
           let markerIcon = stop.completed 

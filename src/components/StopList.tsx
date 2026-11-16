@@ -4,10 +4,10 @@ import {
   CheckSquare, Square, RefreshCw, X, Archive, Clock,
   Wand2, Share2, Download, Crosshair, Search, Sparkles, Check, Layers, PlusCircle,
   Calendar, ChevronDown, UserPlus, ArrowLeft, Mail, Phone, Navigation, HardDrive,
-  Truck
+  Truck, GripVertical
 } from 'lucide-react';
 import { precacheDayRoutes } from '../services/routing';
-import { addStop, updateStop, deleteStop, addHistory, addClient, type Stop, type Client, type Vehicle } from '../services/firestore';
+import { addStop, updateStop, deleteStop, addHistory, addClient, batchUpdateStopOrders, type Stop, type Client, type Vehicle } from '../services/firestore';
 import { 
   calculateDistanceKm, 
   calculateRouteDistanceKm, 
@@ -118,6 +118,12 @@ export const StopList: React.FC<StopListProps> = ({
   // Smart Route Proposal State
   const [preferredStartStopId, setPreferredStartStopId] = useState<string>('');
   const [dismissedProposalSignature, setDismissedProposalSignature] = useState<string>('');
+
+  // Drag and drop state for manual reordering
+  const [draggedStopId, setDraggedStopId] = useState<string | null>(null);
+  const [dragOverStopId, setDragOverStopId] = useState<string | null>(null);
+  const [dragPosition, setDragPosition] = useState<'top' | 'bottom' | null>(null);
+  const [isReordering, setIsReordering] = useState<boolean>(false);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingStop, setEditingStop] = useState<Stop | null>(null);
@@ -812,6 +818,86 @@ export const StopList: React.FC<StopListProps> = ({
     }
   };
 
+  // Drag and Drop Event Handlers
+  const handleDragStart = (e: React.DragEvent, stopId: string) => {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', stopId);
+    setDraggedStopId(stopId);
+  };
+
+  const handleDragOver = (e: React.DragEvent, stopId: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (!draggedStopId || draggedStopId === stopId) return;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const pos = e.clientY < midY ? 'top' : 'bottom';
+    setDragOverStopId(stopId);
+    setDragPosition(pos);
+  };
+
+  const handleDragLeave = (stopId: string) => {
+    if (dragOverStopId === stopId) {
+      setDragOverStopId(null);
+      setDragPosition(null);
+    }
+  };
+
+  const handleDropStop = async (targetStopId: string) => {
+    if (!draggedStopId || draggedStopId === targetStopId) {
+      setDraggedStopId(null);
+      setDragOverStopId(null);
+      setDragPosition(null);
+      return;
+    }
+
+    const fromIdx = sortedStops.findIndex(s => s.id === draggedStopId);
+    const toIdx = sortedStops.findIndex(s => s.id === targetStopId);
+    if (fromIdx === -1 || toIdx === -1) {
+      setDraggedStopId(null);
+      setDragOverStopId(null);
+      setDragPosition(null);
+      return;
+    }
+
+    // Reorder local array
+    const updated = [...sortedStops];
+    const [moved] = updated.splice(fromIdx, 1);
+
+    let insertIdx = toIdx;
+    if (dragPosition === 'bottom') {
+      insertIdx = fromIdx < toIdx ? toIdx : toIdx + 1;
+    } else {
+      insertIdx = fromIdx < toIdx ? toIdx - 1 : toIdx;
+    }
+    insertIdx = Math.max(0, Math.min(updated.length, insertIdx));
+    updated.splice(insertIdx, 0, moved);
+
+    setDraggedStopId(null);
+    setDragOverStopId(null);
+    setDragPosition(null);
+    setIsReordering(true);
+
+    try {
+      const updates = updated.map((s, idx) => ({
+        id: s.id,
+        orderIndex: idx + 1
+      }));
+      await batchUpdateStopOrders(updates);
+    } catch (err) {
+      console.error('Error al guardar el nuevo orden por drag & drop:', err);
+    } finally {
+      setIsReordering(false);
+    }
+  };
+
+  const handleDragEnd = () => {
+    setDraggedStopId(null);
+    setDragOverStopId(null);
+    setDragPosition(null);
+  };
+
   // Apply Geographical Nearest-Neighbor + 2-opt Route Optimization (TSP)
   const handleApplyOptimizedOrder = async (customOrder?: Stop[]) => {
     const targetList = customOrder || computeOptimizedStopOrder(dayStops, preferredStartStopId || undefined);
@@ -1439,6 +1525,12 @@ export const StopList: React.FC<StopListProps> = ({
                     <span>{isMultiSelectMode ? 'Modo Selección: ON' : 'Selección Múltiple'}</span>
                   </button>
 
+                  {isReordering && (
+                    <span className="text-[11px] font-bold text-purple-600 dark:text-purple-400 animate-pulse">
+                      Guardando nuevo orden...
+                    </span>
+                  )}
+
                   {vehicles.length >= 2 && (
                     <button
                       type="button"
@@ -1524,17 +1616,45 @@ export const StopList: React.FC<StopListProps> = ({
                 ? calculateDistanceKm(prevStop.latitude, prevStop.longitude, stop.latitude, stop.longitude)
                 : 0;
 
+              const isDraggingThis = draggedStopId === stop.id;
+              const isTargetOver = dragOverStopId === stop.id;
+
               return (
                 <div 
                   key={stop.id} 
-                  className={`p-4 flex items-center justify-between gap-4 transition-colors hover:bg-slate-50/40 dark:hover:bg-slate-900/10 ${
-                    selectedStopIds.includes(stop.id)
-                      ? 'bg-purple-500/10 dark:bg-purple-950/30'
-                      : stop.completed ? 'bg-emerald-50/10 dark:bg-emerald-950/5' : ''
-                  }`}
+                  draggable={!isMultiSelectMode}
+                  onDragStart={(e) => handleDragStart(e, stop.id)}
+                  onDragOver={(e) => handleDragOver(e, stop.id)}
+                  onDragLeave={() => handleDragLeave(stop.id)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    handleDropStop(stop.id);
+                  }}
+                  onDragEnd={handleDragEnd}
+                  className={`p-4 flex items-center justify-between gap-4 transition-all duration-150 ${
+                    isDraggingThis
+                      ? 'opacity-30 scale-[0.98] border-2 border-dashed border-purple-500 bg-purple-500/10'
+                      : isTargetOver && dragPosition === 'top'
+                        ? 'border-t-4 border-t-purple-600 bg-purple-50/50 dark:bg-purple-950/20'
+                        : isTargetOver && dragPosition === 'bottom'
+                          ? 'border-b-4 border-b-purple-600 bg-purple-50/50 dark:bg-purple-950/20'
+                          : selectedStopIds.includes(stop.id)
+                            ? 'bg-purple-500/10 dark:bg-purple-950/30'
+                            : stop.completed ? 'bg-emerald-50/10 dark:bg-emerald-950/5' : ''
+                  } hover:bg-slate-50/60 dark:hover:bg-slate-900/20`}
                 >
-                  {/* Left: Multi-select Checkbox + Reordering & Completion Status */}
-                  <div className="flex items-center gap-3">
+                  {/* Left: Drag Handle + Multi-select Checkbox + Reordering & Completion Status */}
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    {/* Drag & Drop Handle */}
+                    {!isMultiSelectMode && (
+                      <div 
+                        className="p-1 text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 cursor-grab active:cursor-grabbing transition-colors flex-shrink-0"
+                        title="Arrastrar y soltar para reordenar"
+                      >
+                        <GripVertical className="w-4 h-4" />
+                      </div>
+                    )}
+
                     {/* Multi-select Checkbox for bulk actions */}
                     {isMultiSelectMode && (
                       <button
@@ -1557,6 +1677,7 @@ export const StopList: React.FC<StopListProps> = ({
                         onClick={() => moveStop(stop, 'up')}
                         disabled={idx === 0}
                         className="text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
+                        title="Mover arriba"
                       >
                         <ArrowUp className="w-4 h-4" />
                       </button>
@@ -1564,6 +1685,7 @@ export const StopList: React.FC<StopListProps> = ({
                         onClick={() => moveStop(stop, 'down')}
                         disabled={idx === sortedStops.length - 1}
                         className="text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
+                        title="Mover abajo"
                       >
                         <ArrowDown className="w-4 h-4" />
                       </button>

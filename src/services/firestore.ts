@@ -6,7 +6,8 @@ import {
   updateDoc, 
   deleteDoc, 
   query, 
-  orderBy 
+  orderBy,
+  writeBatch
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 
@@ -59,6 +60,7 @@ export interface Client {
   mapLink?: string;
   phone?: string;
   email?: string;
+  neighborhood?: string;
 }
 
 export interface RouteHistory {
@@ -174,6 +176,22 @@ export const updateStop = async (id: string, updates: Partial<Omit<Stop, 'id'>>)
   } catch (error) {
     console.error("Error updating stop: ", error);
     throw error;
+  }
+};
+
+export const batchUpdateStopOrders = async (updates: { id: string; orderIndex: number }[]) => {
+  if (updates.length === 0) return;
+  try {
+    const batch = writeBatch(db);
+    updates.forEach(({ id, orderIndex }) => {
+      const docRef = doc(db, STOPS_COLLECTION, id);
+      batch.update(docRef, { orderIndex: Number(orderIndex) });
+    });
+    await batch.commit();
+  } catch (error) {
+    console.error("Error batch updating stop orders: ", error);
+    // Fallback sequential
+    await Promise.all(updates.map(u => updateStop(u.id, { orderIndex: u.orderIndex })));
   }
 };
 
