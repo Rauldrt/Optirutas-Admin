@@ -444,3 +444,31 @@ export const computeOptimizedStopOrder = (
 
   return [...bestTour, ...invalid];
 };
+
+/**
+ * Format dwell duration (tiempo de permanencia/demora en el cliente)
+ * e.g. "8 min", "45s", "1h 15m"
+ */
+export const formatDwellDuration = (minutes?: number, seconds?: number): string => {
+  if (seconds !== undefined && seconds !== null) {
+    if (seconds < 60) return `${seconds}s`;
+    const m = Math.floor(seconds / 60);
+    const remSec = seconds % 60;
+    if (m < 60) {
+      return remSec > 0 ? `${m}m ${remSec}s` : `${m} min`;
+    }
+    const h = Math.floor(m / 60);
+    const remM = m % 60;
+    return `${h}h ${remM}m`;
+  }
+  if (minutes !== undefined && minutes !== null) {
+    if (minutes < 1) return '< 1 min';
+    if (minutes >= 60) {
+      const h = Math.floor(minutes / 60);
+      const remM = minutes % 60;
+      return `${h}h ${remM}m`;
+    }
+    return `${minutes} min`;
+  }
+  return '';
+};

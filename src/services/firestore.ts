@@ -22,7 +22,10 @@ export interface Stop {
   orderIndex: number;
   deliveryDay: string;
   mapLink?: string;
+  arrivedAt?: number;
   completedAt?: number;
+  dwellTimeMinutes?: number;
+  dwellTimeSeconds?: number;
   vehicleId?: string;
   vehicleName?: string;
 }
@@ -71,6 +74,7 @@ export interface RouteHistory {
   stopsSummary: string;
   driverName?: string;
   duration?: string;
+  avgDwellMinutes?: number;
   vehicleId?: string;
   vehicleName?: string;
 }
@@ -109,7 +113,10 @@ export const subscribeToStops = (callback: (stops: Stop[]) => void) => {
         orderIndex: data.orderIndex !== undefined ? Number(data.orderIndex) : 0,
         deliveryDay: data.deliveryDay || '',
         mapLink: data.mapLink || '',
+        arrivedAt: data.arrivedAt ? Number(data.arrivedAt) : undefined,
         completedAt: data.completedAt ? Number(data.completedAt) : undefined,
+        dwellTimeMinutes: data.dwellTimeMinutes !== undefined && data.dwellTimeMinutes !== null ? Number(data.dwellTimeMinutes) : undefined,
+        dwellTimeSeconds: data.dwellTimeSeconds !== undefined && data.dwellTimeSeconds !== null ? Number(data.dwellTimeSeconds) : undefined,
         vehicleId: data.vehicleId || undefined,
         vehicleName: data.vehicleName || undefined,
       });
@@ -134,8 +141,17 @@ export const addStop = async (stop: Omit<Stop, 'id'> & { id?: string }) => {
       deliveryDay: stop.deliveryDay,
       mapLink: stop.mapLink || '',
     };
+    if (stop.arrivedAt !== undefined) {
+      data.arrivedAt = stop.arrivedAt;
+    }
     if (stop.completedAt !== undefined) {
       data.completedAt = stop.completedAt;
+    }
+    if (stop.dwellTimeMinutes !== undefined) {
+      data.dwellTimeMinutes = stop.dwellTimeMinutes;
+    }
+    if (stop.dwellTimeSeconds !== undefined) {
+      data.dwellTimeSeconds = stop.dwellTimeSeconds;
     }
     if (stop.vehicleId !== undefined) {
       data.vehicleId = stop.vehicleId;
@@ -162,10 +178,16 @@ export const updateStop = async (id: string, updates: Partial<Omit<Stop, 'id'>>)
     if (updates.completed !== undefined) {
       cleanUpdates.completed = updates.completed;
       if (updates.completed === false) {
-        cleanUpdates.completedAt = null; // Clear timestamp if unmarked
+        cleanUpdates.completedAt = null; // Clear timestamps & dwell metrics if unmarked
+        cleanUpdates.arrivedAt = null;
+        cleanUpdates.dwellTimeMinutes = null;
+        cleanUpdates.dwellTimeSeconds = null;
       }
     }
+    if (updates.arrivedAt !== undefined) cleanUpdates.arrivedAt = updates.arrivedAt;
     if (updates.completedAt !== undefined) cleanUpdates.completedAt = updates.completedAt;
+    if (updates.dwellTimeMinutes !== undefined) cleanUpdates.dwellTimeMinutes = updates.dwellTimeMinutes;
+    if (updates.dwellTimeSeconds !== undefined) cleanUpdates.dwellTimeSeconds = updates.dwellTimeSeconds;
     if (updates.orderIndex !== undefined) cleanUpdates.orderIndex = Number(updates.orderIndex);
     if (updates.deliveryDay !== undefined) cleanUpdates.deliveryDay = updates.deliveryDay;
     if (updates.mapLink !== undefined) cleanUpdates.mapLink = updates.mapLink;

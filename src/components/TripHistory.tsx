@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { 
   Calendar, User, Clock, Route, Trash2, RotateCcw, 
-  Download, Search, X, Truck, Printer, Archive, CheckCircle2 
+  Download, Search, X, Truck, Printer, Archive, CheckCircle2, Timer 
 } from 'lucide-react';
 import { 
   addHistory, 
@@ -212,6 +212,16 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
         : dayStops.map(s => s.name).join(', ');
 
       // Save to Firestore History
+      const completedWithDwell = completedStops.filter(s => s.dwellTimeMinutes !== undefined || (s.completedAt && s.arrivedAt));
+      const avgDwellMins = completedWithDwell.length > 0
+        ? Math.round(completedWithDwell.reduce((acc, s) => {
+            const m = s.dwellTimeMinutes !== undefined 
+              ? s.dwellTimeMinutes 
+              : Math.round(((s.completedAt || 0) - (s.arrivedAt || 0)) / 60000);
+            return acc + m;
+          }, 0) / completedWithDwell.length)
+        : undefined;
+
       await addHistory({
         dateMillis: Date.now(),
         day: archiveDay,
@@ -220,7 +230,8 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
         driverName: targetVehicle ? targetVehicle.driverName : 'Equipo de Reparto',
         vehicleId: targetVehicle ? targetVehicle.id : '',
         vehicleName: targetVehicle ? targetVehicle.name : 'Flota Completa',
-        duration: 'Jornada Finalizada',
+        duration: avgDwellMins ? `Jornada Finalizada (prom. ${avgDwellMins}m en cliente)` : 'Jornada Finalizada',
+        avgDwellMinutes: avgDwellMins,
       });
 
       // Optionally reset completed stops to pending for next week
@@ -228,7 +239,10 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
         for (const s of completedStops) {
           await updateStop(s.id, {
             completed: false,
-            completedAt: undefined
+            completedAt: undefined,
+            arrivedAt: undefined,
+            dwellTimeMinutes: undefined,
+            dwellTimeSeconds: undefined,
           });
         }
       }
@@ -408,6 +422,12 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
                         <Clock className="w-3.5 h-3.5 text-purple-500" />
                         Duración: {item.duration || 'N/A'}
                       </span>
+                      {item.avgDwellMinutes !== undefined && item.avgDwellMinutes > 0 && (
+                        <span className="flex items-center gap-1.5 text-teal-600 dark:text-teal-400 font-bold">
+                          <Timer className="w-3.5 h-3.5" />
+                          Prom. en cliente: ~{item.avgDwellMinutes} min
+                        </span>
+                      )}
                       <span className="flex items-center gap-1.5">
                         <Route className="w-3.5 h-3.5 text-purple-500" />
                         Entregas: {item.stopsCount}

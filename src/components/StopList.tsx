@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Plus, Edit2, Trash2, ArrowUp, ArrowDown, MapPin, 
-  CheckSquare, Square, RefreshCw, X, Archive, Clock,
+  CheckSquare, Square, RefreshCw, X, Archive, Clock, Timer,
   Wand2, Share2, Download, Crosshair, Search, Sparkles, Check, Layers, PlusCircle,
   Calendar, ChevronDown, UserPlus, ArrowLeft, Mail, Phone, Navigation, HardDrive,
   Truck, GripVertical
@@ -16,7 +16,8 @@ import {
   extractCoords, 
   resolveMapLinkCoords,
   getCurrentDayNameEs,
-  smartSearchMatch
+  smartSearchMatch,
+  formatDwellDuration
 } from '../utils/geo';
 
 interface StopListProps {
@@ -778,9 +779,17 @@ export const StopList: React.FC<StopListProps> = ({
   const toggleCompleted = async (stop: Stop) => {
     try {
       const nextCompleted = !stop.completed;
+      const now = Date.now();
+      const arrivedAt = stop.arrivedAt;
+      const dwellSeconds = arrivedAt ? Math.max(0, Math.round((now - arrivedAt) / 1000)) : undefined;
+      const dwellMinutes = arrivedAt ? Math.max(1, Math.round(dwellSeconds! / 60)) : undefined;
+
       await updateStop(stop.id, { 
         completed: nextCompleted,
-        completedAt: nextCompleted ? Date.now() : null as any
+        completedAt: nextCompleted ? now : null as any,
+        arrivedAt: nextCompleted ? (arrivedAt || null as any) : null as any,
+        dwellTimeMinutes: nextCompleted && arrivedAt ? dwellMinutes : null as any,
+        dwellTimeSeconds: nextCompleted && arrivedAt ? dwellSeconds : null as any
       });
     } catch (err) {
       console.error(err);
@@ -933,7 +942,10 @@ export const StopList: React.FC<StopListProps> = ({
     dayStops.forEach((s, idx) => {
       const statusIcon = s.completed ? '✅' : '⏳';
       const navUrl = s.mapLink || `https://maps.google.com/?q=${s.latitude},${s.longitude}`;
-      lines.push(`${idx + 1}. ${statusIcon} *${s.name}*\n   📌 ${s.address}\n   🗺️ ${navUrl}`);
+      const dwell = formatDwellDuration(s.dwellTimeMinutes, s.dwellTimeSeconds);
+      const dwellText = s.completed && dwell ? ` • Demora: ${dwell}` : '';
+      const timeText = s.completed && s.completedAt ? ` [Salida: ${formatTime(s.completedAt)}]` : '';
+      lines.push(`${idx + 1}. ${statusIcon} *${s.name}*${dwellText}${timeText}\n   📌 ${s.address}\n   🗺️ ${navUrl}`);
     });
 
     const url = `https://wa.me/?text=${encodeURIComponent(lines.join('\n'))}`;
@@ -943,14 +955,16 @@ export const StopList: React.FC<StopListProps> = ({
   // Export Stops to CSV
   const handleExportCSV = () => {
     if (dayStops.length === 0) return;
-    const headers = ['Orden', 'Nombre', 'Direccion', 'Dia', 'Estado', 'Hora Entrega', 'Latitud', 'Longitud', 'Google Maps'];
+    const headers = ['Orden', 'Nombre', 'Direccion', 'Dia', 'Estado', 'Hora Llegada', 'Hora Salida', 'Tiempo en Cliente (min)', 'Latitud', 'Longitud', 'Google Maps'];
     const rows = dayStops.map(s => [
       s.orderIndex,
       `"${s.name.replace(/"/g, '""')}"`,
       `"${s.address.replace(/"/g, '""')}"`,
       s.deliveryDay,
       s.completed ? 'Completado' : 'Pendiente',
+      s.arrivedAt ? formatTime(s.arrivedAt) : '',
       s.completedAt ? formatTime(s.completedAt) : '',
+      s.dwellTimeMinutes !== undefined ? s.dwellTimeMinutes : (s.completedAt && s.arrivedAt ? Math.round((s.completedAt - s.arrivedAt) / 60000) : ''),
       s.latitude,
       s.longitude,
       s.mapLink || `https://maps.google.com/?q=${s.latitude},${s.longitude}`
@@ -1049,13 +1063,29 @@ export const StopList: React.FC<StopListProps> = ({
     setIsArchiving(true);
     try {
       const summary = completedStops.map(s => s.name).join(', ');
+      const completedWithDwell = completedStops.filter(s => s.dwellTimeMinutes !== undefined || (s.completedAt && s.arrivedAt));
+      const avgDwellMins = completedWithDwell.length > 0
+        ? Math.round(completedWithDwell.reduce((acc, s) => {
+            const m = s.dwellTimeMinutes !== undefined 
+              ? s.dwellTimeMinutes 
+              : Math.round(((s.completedAt || 0) - (s.arrivedAt || 0)) / 60000);
+            return acc + m;
+          }, 0) / completedWithDwell.length)
+        : undefined;
+
+      const durationFinal = [
+        archiveDuration.trim(),
+        avgDwellMins ? `prom. ${avgDwellMins}m en cliente` : null
+      ].filter(Boolean).join(' • ');
+
       await addHistory({
         dateMillis: Date.now(),
         day: selectedDay === 'Todos' ? 'Varios' : selectedDay,
         stopsCount: completedStops.length,
         stopsSummary: summary,
         driverName: archiveDriverName.trim() || 'Repartidor',
-        duration: archiveDuration.trim() || 'N/A',
+        duration: durationFinal || 'N/A',
+        avgDwellMinutes: avgDwellMins,
       });
 
       for (const stop of completedStops) {
@@ -1742,16 +1772,46 @@ export const StopList: React.FC<StopListProps> = ({
                           </span>
                         )}
                         
-                        {/* Delivery Time and Transit Metrics */}
+                        {/* Delivery Time, Dwell Time and Transit Metrics */}
                         {stop.completed && stop.completedAt && (
-                          <span className="bg-emerald-100/70 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[10px] font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
-                            <Clock className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                            <span>{formatTime(stop.completedAt)}</span>
-                            {transitTimes[stop.id] && (
-                              <span className="opacity-80 font-bold border-l border-emerald-300 dark:border-emerald-700 pl-1 ml-1 text-[9px]">
-                                {transitTimes[stop.id]}
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span 
+                              className="bg-emerald-100/70 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[10px] font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1"
+                              title="Hora de entrega y salida"
+                            >
+                              <Clock className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                              <span>Salida: {formatTime(stop.completedAt)}</span>
+                            </span>
+
+                            {(stop.dwellTimeMinutes !== undefined || (stop.completedAt && stop.arrivedAt)) && (
+                              <span 
+                                className="bg-teal-100/80 dark:bg-teal-950/50 text-teal-800 dark:text-teal-300 border border-teal-300/60 dark:border-teal-800/60 text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 shadow-xs"
+                                title={`Tiempo transcurrido en el cliente: ${stop.arrivedAt ? `Llegó: ${formatTime(stop.arrivedAt)} → Salió: ${formatTime(stop.completedAt)}` : ''}`}
+                              >
+                                <Timer className="w-3 h-3 text-teal-600 dark:text-teal-400" />
+                                <span>{formatDwellDuration(stop.dwellTimeMinutes, stop.dwellTimeSeconds)} en cliente</span>
                               </span>
                             )}
+
+                            {transitTimes[stop.id] && (
+                              <span 
+                                className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1"
+                                title="Tiempo de viaje desde la parada anterior"
+                              >
+                                <span>🚗 {transitTimes[stop.id]} viaje</span>
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Live Arrival Indicator if Driver is currently attending this pending stop */}
+                        {!stop.completed && stop.arrivedAt && (
+                          <span 
+                            className="bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-800 text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse"
+                            title="Móvil actualmente en el cliente atendiendo"
+                          >
+                            <Timer className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                            <span>En cliente ({formatTime(stop.arrivedAt)})</span>
                           </span>
                         )}
                       </div>

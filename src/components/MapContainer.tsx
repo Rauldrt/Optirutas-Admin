@@ -2,11 +2,11 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, Circle, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { updateStop, addStop, type Stop, type Client, type Vehicle } from '../services/firestore';
-import { calculateRouteDistanceKm, calculateDistanceKm, getCurrentDayNameEs } from '../utils/geo';
+import { calculateRouteDistanceKm, calculateDistanceKm, getCurrentDayNameEs, formatDwellDuration } from '../utils/geo';
 import { 
   Crosshair, Route as RouteIcon, X, MousePointerClick, Send, BoxSelect,
   Navigation, Locate, LocateFixed, Volume2, VolumeX, CheckCircle2, AlertCircle,
-  Maximize2, Minimize2, BellRing, Users
+  Maximize2, Minimize2, BellRing, Users, Timer, Clock
 } from 'lucide-react';
 import { useGeolocation, speakInstruction } from '../hooks/useGeolocation';
 import { getStreetRoute, type RouteResult } from '../services/routing';
@@ -201,6 +201,11 @@ export const MapView: React.FC<MapViewProps> = ({
       // Trigger alerts only once per stop arrival
       if (notifiedArrivalStopIdRef.current !== activeNavStop.id) {
         notifiedArrivalStopIdRef.current = activeNavStop.id;
+
+        // Auto-register arrival timestamp if not already set
+        if (!activeNavStop.arrivedAt) {
+          updateStop(activeNavStop.id, { arrivedAt: Date.now() }).catch(() => {});
+        }
 
         // 1. Spoken audio notification
         if (!isVoiceMuted) {
@@ -637,9 +642,15 @@ export const MapView: React.FC<MapViewProps> = ({
 
   const handleToggleStopFromPopup = async (stop: Stop) => {
     const nextCompleted = !stop.completed;
+    const now = Date.now();
+    const arrivedAt = stop.arrivedAt;
+    const dwellSeconds = arrivedAt ? Math.max(0, Math.round((now - arrivedAt) / 1000)) : undefined;
+    const dwellMinutes = arrivedAt ? Math.max(1, Math.round(dwellSeconds! / 60)) : undefined;
+
     await updateStop(stop.id, {
       completed: nextCompleted,
-      completedAt: nextCompleted ? Date.now() : (null as any)
+      completedAt: nextCompleted ? now : (null as any),
+      ...(nextCompleted && arrivedAt ? { dwellTimeMinutes: dwellMinutes, dwellTimeSeconds: dwellSeconds } : {})
     });
   };
 
@@ -1392,7 +1403,31 @@ export const MapView: React.FC<MapViewProps> = ({
                     )}
 
                     <h3 className="font-extrabold text-sm mb-1">{stop.name}</h3>
-                    <p className="text-xs mb-2"><b>Dirección:</b> {stop.address}</p>
+                    <p className="text-xs mb-1.5"><b>Dirección:</b> {stop.address}</p>
+
+                    {/* Dwell & Timing Badges */}
+                    {stop.completed && stop.completedAt && (
+                      <div className="mb-2 p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-800/60 text-[10px] text-emerald-800 dark:text-emerald-300 flex flex-col gap-0.5">
+                        <div className="flex items-center gap-1 font-bold">
+                          <Clock className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                          <span>Salida / Entrega: {new Date(stop.completedAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                        {(stop.dwellTimeMinutes !== undefined || (stop.completedAt && stop.arrivedAt)) && (
+                          <div className="flex items-center gap-1 font-black text-emerald-700 dark:text-emerald-400">
+                            <Timer className="w-3 h-3" />
+                            <span>Permanencia en cliente: {formatDwellDuration(stop.dwellTimeMinutes, stop.dwellTimeSeconds)}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {!stop.completed && stop.arrivedAt && (
+                      <div className="mb-2 p-1.5 rounded-lg bg-purple-50 dark:bg-purple-950/40 border border-purple-200/60 dark:border-purple-800/60 text-[10px] text-purple-800 dark:text-purple-300 font-bold flex items-center gap-1 animate-pulse">
+                        <Timer className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                        <span>En atención desde las {new Date(stop.arrivedAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                    )}
+
                     <div className="flex flex-wrap items-center justify-between gap-1.5 pt-2 border-t border-slate-200/60">
                       <button
                         onClick={() => handleToggleStopFromPopup(stop)}

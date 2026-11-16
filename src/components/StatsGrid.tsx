@@ -32,6 +32,19 @@ export const StatsGrid: React.FC<StatsGridProps> = ({ stops, clients, vehicles =
     avgMinutesPerStop = Math.max(1, Math.round(totalMinutes / (completedWithTime.length - 1)));
   }
 
+  // Calculate average dwell time per customer (tiempo de permanencia en cliente)
+  const completedWithDwell = stops.filter(s => s.completed && (s.dwellTimeMinutes !== undefined || (s.completedAt && s.arrivedAt)));
+  let avgDwellMinutes = 0;
+  if (completedWithDwell.length > 0) {
+    const totalDwell = completedWithDwell.reduce((acc, s) => {
+      const mins = s.dwellTimeMinutes !== undefined 
+        ? s.dwellTimeMinutes 
+        : Math.round(((s.completedAt || 0) - (s.arrivedAt || 0)) / 60000);
+      return acc + mins;
+    }, 0);
+    avgDwellMinutes = Math.max(1, Math.round(totalDwell / completedWithDwell.length));
+  }
+
   // Estimate remaining time (use real average if available, otherwise ~15 min per pending stop)
   const paceMinutes = avgMinutesPerStop > 0 ? avgMinutesPerStop : 15;
   const estimatedRemainingMins = pendingStops * paceMinutes;
@@ -65,9 +78,11 @@ export const StatsGrid: React.FC<StatsGridProps> = ({ stops, clients, vehicles =
       progress: totalStops > 0 ? Math.round((pendingStops / totalStops) * 100) : 0
     },
     {
-      name: 'Ritmo de Entrega',
-      value: avgMinutesPerStop > 0 ? `${avgMinutesPerStop} min` : (completedStops > 0 ? 'En curso' : '—'),
-      subtext: avgMinutesPerStop > 0 ? 'Promedio entre paradas' : 'Requiere 2+ entregas con hora',
+      name: 'Ritmo y Permanencia',
+      value: avgDwellMinutes > 0 ? `${avgDwellMinutes} min` : (avgMinutesPerStop > 0 ? `${avgMinutesPerStop} min` : (completedStops > 0 ? 'En curso' : '—')),
+      subtext: avgDwellMinutes > 0 
+        ? `Demora en cliente • ~${avgMinutesPerStop}m en ruta`
+        : (avgMinutesPerStop > 0 ? 'Promedio entre paradas' : 'Requiere entregas con hora'),
       icon: Timer,
       color: 'from-purple-500 to-pink-600',
       shadowColor: 'shadow-purple-500/20',
