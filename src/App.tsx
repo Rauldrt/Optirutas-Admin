@@ -26,6 +26,7 @@ import { AuthGate, type UserSession } from './components/AuthGate';
 import { DriverView } from './components/DriverView';
 import { signOutAdmin, subscribeToAuth } from './services/auth';
 import { SecuritySettingsModal } from './components/SecuritySettingsModal';
+import { CustomerTrackingView } from './components/CustomerTrackingView';
 
 function App() {
   const todayName = getCurrentDayNameEs();
@@ -44,6 +45,13 @@ function App() {
   // Dynamic default day: starts on today's day of the week (e.g. 'Jueves')
   const [selectedDay, setSelectedDay] = useState<string>(todayName);
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
+
+  // Customer Live Tracking URL parameter detection (?track=STOP_ID or ?mode=track&stopId=STOP_ID)
+  const [trackingStopId, setTrackingStopId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('track') || (params.get('mode') === 'track' ? params.get('stopId') : null);
+  });
 
   // User Authentication & Role Session State ('admin' vs 'driver')
   const [session, setSession] = useState<UserSession | null>(() => {
@@ -329,6 +337,28 @@ function App() {
   };
 
   const daysOfWeek = ['Todos', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+
+  // Standalone Customer Tracking Profile (No login required for recipient tracking link)
+  if (trackingStopId) {
+    return (
+      <CustomerTrackingView
+        stopId={trackingStopId}
+        stops={stops}
+        vehicles={vehicles}
+        clients={clients}
+        onExit={() => {
+          if (typeof window !== 'undefined') {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('track');
+            url.searchParams.delete('mode');
+            url.searchParams.delete('stopId');
+            window.history.replaceState({}, '', url.pathname);
+          }
+          setTrackingStopId(null);
+        }}
+      />
+    );
+  }
 
   // If no session active, show Authentication Gate
   if (!session) {

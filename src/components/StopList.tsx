@@ -1874,11 +1874,13 @@ export const StopList: React.FC<StopListProps> = ({
 
                     {matchedClient?.phone && (
                       <a
-                        href={`https://wa.me/${formatWhatsAppPhone(matchedClient.phone)}?text=${encodeURIComponent(`¡Hola *${stop.name}*! Te avisamos desde Optirutas que tu pedido está en camino a ${stop.address}.`)}`}
+                        href={`https://wa.me/${formatWhatsAppPhone(matchedClient.phone)}?text=${encodeURIComponent(
+                          `¡Hola *${stop.name}*! Te avisamos desde Optirutas que tu pedido está en camino a ${stop.address}. Puedes seguir la llegada del móvil en vivo aquí:\n${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}?track=${stop.id}` : ''}`
+                        )}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="p-1.5 text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-xl transition-all cursor-pointer border border-emerald-200/50 dark:border-emerald-800/50"
-                        title={`Enviar WhatsApp a ${stop.name} (${matchedClient.phone})`}
+                        title={`Enviar WhatsApp con link de seguimiento a ${stop.name} (${matchedClient.phone})`}
                       >
                         <MessageCircle className="w-4 h-4" />
                       </a>

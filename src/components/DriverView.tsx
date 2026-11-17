@@ -336,11 +336,13 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, clients 
                   )}
                   {matchedCurrentClient?.phone && (
                     <a
-                      href={`https://wa.me/${formatWhatsAppPhone(matchedCurrentClient.phone)}?text=${encodeURIComponent(`¡Hola *${currentStop.name}*! Te avisamos desde el móvil de entregas que estamos en camino a tu domicilio.`)}`}
+                      href={`https://wa.me/${formatWhatsAppPhone(matchedCurrentClient.phone)}?text=${encodeURIComponent(
+                        `¡Hola *${currentStop.name}*! Te avisamos desde el móvil de entregas que estamos en camino a tu domicilio. Puedes seguir la llegada en vivo aquí:\n${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}?track=${currentStop.id}` : ''}`
+                      )}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-600/25 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-500/40 text-xs font-black transition-all no-underline cursor-pointer"
-                      title={`Enviar WhatsApp a ${currentStop.name}`}
+                      title={`Enviar WhatsApp con link de seguimiento a ${currentStop.name}`}
                     >
                       <MessageCircle className="w-3.5 h-3.5 text-emerald-400" />
                       <span>WhatsApp</span>

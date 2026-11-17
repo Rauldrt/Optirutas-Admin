@@ -6,7 +6,7 @@ import { calculateRouteDistanceKm, calculateDistanceKm, getCurrentDayNameEs, for
 import { 
   Crosshair, Route as RouteIcon, X, MousePointerClick, Send, BoxSelect,
   Navigation, Locate, LocateFixed, Volume2, VolumeX, CheckCircle2, AlertCircle,
-  Maximize2, Minimize2, BellRing, Users, Timer, Clock, MessageCircle
+  Maximize2, Minimize2, BellRing, Users, Timer, Clock, MessageCircle, Copy, Check
 } from 'lucide-react';
 import { useGeolocation, speakInstruction } from '../hooks/useGeolocation';
 import { getStreetRoute, type RouteResult } from '../services/routing';
@@ -654,6 +654,22 @@ export const MapView: React.FC<MapViewProps> = ({
     });
   };
 
+  const [copiedStopId, setCopiedStopId] = useState<string | null>(null);
+
+  const getTrackingUrl = (stopId: string) => {
+    if (typeof window === 'undefined') return '';
+    return `${window.location.origin}${window.location.pathname}?track=${stopId}`;
+  };
+
+  const handleCopyTrackingLink = (stopId: string) => {
+    const url = getTrackingUrl(stopId);
+    if (typeof window !== 'undefined') {
+      navigator.clipboard.writeText(url);
+      setCopiedStopId(stopId);
+      setTimeout(() => setCopiedStopId(null), 2500);
+    }
+  };
+
   const handlePromptWhatsAppForStop = (stop: Stop, clientMatch?: Client) => {
     const raw = window.prompt(`Ingresa el número de WhatsApp para ${stop.name}:`, clientMatch?.phone || '');
     if (!raw) return;
@@ -666,9 +682,10 @@ export const MapView: React.FC<MapViewProps> = ({
     if (clientMatch) {
       updateClient(clientMatch.id, { phone: raw.trim() }).catch(console.error);
     }
+    const trackingUrl = getTrackingUrl(stop.id);
     const defaultText = stop.completed
       ? `¡Hola *${stop.name}*! Te confirmamos que tu entrega fue realizada con éxito en ${stop.address}.`
-      : `¡Hola *${stop.name}*! Te avisamos desde Optirutas que tu pedido está en camino a tu domicilio.`;
+      : `¡Hola *${stop.name}*! Te avisamos desde Optirutas que tu pedido está en camino a tu domicilio. Puedes seguir la llegada en vivo aquí:\n${trackingUrl}`;
     window.open(`https://wa.me/${clean}?text=${encodeURIComponent(defaultText)}`, '_blank');
   };
 
@@ -1463,7 +1480,7 @@ export const MapView: React.FC<MapViewProps> = ({
                           href={`https://wa.me/${formatWhatsAppPhone(matchedClient.phone)}?text=${encodeURIComponent(
                             stop.completed
                               ? `¡Hola *${stop.name}*! Te confirmamos que tu pedido fue entregado con éxito en tu domicilio.`
-                              : `¡Hola *${stop.name}*! Te avisamos desde Optirutas que tu pedido está en camino a tu domicilio.`
+                              : `¡Hola *${stop.name}*! Te avisamos desde Optirutas que tu pedido está en camino a tu domicilio. Puedes seguir la llegada en vivo aquí:\n${getTrackingUrl(stop.id)}`
                           )}`}
                           target="_blank"
                           rel="noopener noreferrer"
@@ -1488,6 +1505,38 @@ export const MapView: React.FC<MapViewProps> = ({
                         </button>
                       </div>
                     )}
+
+                    {/* Live Tracking Link for Customer */}
+                    <div className="mb-2 px-2 py-1 rounded-lg bg-purple-50/70 dark:bg-purple-950/40 border border-purple-200/50 dark:border-purple-800/50 flex items-center justify-between text-[10px]">
+                      <button
+                        type="button"
+                        onClick={() => handleCopyTrackingLink(stop.id)}
+                        className="inline-flex items-center gap-1 font-bold text-purple-700 dark:text-purple-300 hover:underline cursor-pointer"
+                        title="Copiar link de seguimiento en vivo para el cliente"
+                      >
+                        {copiedStopId === stop.id ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-500" />
+                            <span className="text-emerald-600 font-extrabold">¡Link copiado!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>Copiar Link Seguimiento</span>
+                          </>
+                        )}
+                      </button>
+
+                      <a
+                        href={getTrackingUrl(stop.id)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-slate-500 hover:text-purple-600 dark:hover:text-purple-300 font-bold hover:underline"
+                        title="Abrir vista de seguimiento como cliente en nueva pestaña"
+                      >
+                        Ver como Cliente ↗
+                      </a>
+                    </div>
 
                     {/* Dwell & Timing Badges */}
                     {stop.completed && stop.completedAt && (
