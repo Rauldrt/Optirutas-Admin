@@ -236,9 +236,17 @@ function App() {
     return () => mediaQuery.removeEventListener('change', handleSystemThemeChange);
   }, []);
 
-  // Subscribe to Firestore collections scoped to the active tenant/company
+  // Subscribe to Firestore collections ONLY when there is an active authenticated session
   useEffect(() => {
-    const activeCompany = session?.companyId || 'default';
+    if (!session?.companyId) {
+      setStops([]);
+      setClients([]);
+      setVehicles([]);
+      setHistory([]);
+      return;
+    }
+
+    const activeCompany = session.companyId;
     const unsubStops = subscribeToStops((data) => setStops(data), activeCompany);
     const unsubClients = subscribeToClients((data) => setClients(data), activeCompany);
     const unsubVehicles = subscribeToVehicles((data) => setVehicles(data), activeCompany);

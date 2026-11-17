@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import type { Vehicle } from '../services/firestore';
+import { 
+  subscribeToVehicles, 
+  subscribeToSingleVehicle, 
+  type Vehicle 
+} from '../services/firestore';
 import { 
   Truck, ShieldCheck, KeyRound, Lock, ArrowRight, UserCheck, 
   AlertCircle, Compass, Mail, Eye, EyeOff, CheckCircle2, UserPlus,
-  ArrowLeft, ShieldAlert, Download, Building2
+  ArrowLeft, ShieldAlert, Download, Building2, Search
 } from 'lucide-react';
 import { 
   signInAdmin, 
@@ -25,7 +29,37 @@ interface AuthGateProps {
 }
 
 export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) => {
-  const [activeTab, setActiveTab] = useState<'driver' | 'admin'>('driver');
+  // Default to 'admin' tab so new tenants/visitors see company login & registration first
+  const [activeTab, setActiveTab] = useState<'driver' | 'admin'>('admin');
+
+  // Company Code and Isolated Vehicles for Driver Flow
+  const [driverCompanyCode, setDriverCompanyCode] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('companyId') || localStorage.getItem('optirutas_driver_company_code') || '';
+    }
+    return '';
+  });
+  const [companyCodeInput, setCompanyCodeInput] = useState<string>('');
+  const [companyVehicles, setCompanyVehicles] = useState<Vehicle[]>(vehicles);
+
+  // Subscribe to vehicles ONLY when a specific company code is known/provided
+  useEffect(() => {
+    if (!driverCompanyCode.trim()) {
+      setCompanyVehicles([]);
+      return;
+    }
+    const unsub = subscribeToVehicles((list) => {
+      setCompanyVehicles(list);
+      if (list.length > 0) {
+        setSelectedVehicleId((prev) => {
+          if (prev && list.some(v => v.id === prev)) return prev;
+          return list[0].id;
+        });
+      }
+    }, driverCompanyCode.trim());
+    return () => unsub();
+  }, [driverCompanyCode]);
 
   // Driver login state
   const [selectedVehicleId, setSelectedVehicleId] = useState<string>('');
@@ -47,13 +81,6 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
   // PWA Installation Hook
   const { isInstallable, installApp, showInstallGuide, setShowInstallGuide, isIOS } = usePWAInstall();
 
-  // Set default selected vehicle when vehicles load
-  useEffect(() => {
-    if (vehicles.length > 0 && !selectedVehicleId) {
-      setSelectedVehicleId(vehicles[0].id);
-    }
-  }, [vehicles, selectedVehicleId]);
-
   // Handle URL Query Params (Magic Links, e.g. from WhatsApp)
   // Example: https://optirutas-admin.vercel.app/?mode=driver&vehicleId=123&pin=1234&companyId=xyz
   useEffect(() => {
@@ -62,29 +89,34 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
     const mode = params.get('mode');
 
     if (mode === 'driver') {
+      setActiveTab('driver');
       const vId = params.get('vehicleId');
       const pin = params.get('pin');
       const paramCompanyId = params.get('companyId');
-      if (vId && pin && vehicles.length > 0) {
-        const targetVehicle = vehicles.find(v => v.id === vId);
-        if (targetVehicle) {
-          const expectedPin = targetVehicle.pin || '1234';
-          if (pin.trim() === expectedPin.trim()) {
-            const session: UserSession = {
-              role: 'driver',
-              companyId: paramCompanyId || targetVehicle.companyId || 'default',
-              vehicleId: targetVehicle.id,
-              vehicleName: targetVehicle.name,
-              driverName: targetVehicle.driverName,
-              loginTime: Date.now()
-            };
-            localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-            // Clean URL query params without reload
-            window.history.replaceState({}, document.title, window.location.pathname);
-            onLoginSuccess(session);
-            return;
+      if (paramCompanyId) {
+        setDriverCompanyCode(paramCompanyId);
+      }
+      if (vId && pin) {
+        const unsub = subscribeToSingleVehicle(vId, (targetVehicle) => {
+          if (targetVehicle) {
+            const expectedPin = targetVehicle.pin || '1234';
+            if (pin.trim() === expectedPin.trim()) {
+              const session: UserSession = {
+                role: 'driver',
+                companyId: paramCompanyId || targetVehicle.companyId || 'default',
+                vehicleId: targetVehicle.id,
+                vehicleName: targetVehicle.name,
+                driverName: targetVehicle.driverName,
+                loginTime: Date.now()
+              };
+              localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+              // Clean URL query params without reload
+              window.history.replaceState({}, document.title, window.location.pathname);
+              onLoginSuccess(session);
+            }
           }
-        }
+        });
+        return () => unsub();
       }
     } else if (mode === 'admin') {
       const pin = params.get('pin') || params.get('key');
@@ -105,13 +137,13 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
         return;
       }
     }
-  }, [vehicles, onLoginSuccess]);
+  }, [onLoginSuccess]);
 
   const handleDriverSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setDriverError(null);
 
-    const vehicle = vehicles.find(v => v.id === selectedVehicleId);
+    const vehicle = companyVehicles.find(v => v.id === selectedVehicleId);
     if (!vehicle) {
       setDriverError('Por favor selecciona un móvil.');
       return;
@@ -125,7 +157,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
 
     const session: UserSession = {
       role: 'driver',
-      companyId: vehicle.companyId || 'default',
+      companyId: vehicle.companyId || driverCompanyCode || 'default',
       vehicleId: vehicle.id,
       vehicleName: vehicle.name,
       driverName: vehicle.driverName,
@@ -229,7 +261,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
     }
   };
 
-  const activeSelectedVehicle = vehicles.find(v => v.id === selectedVehicleId);
+  const activeSelectedVehicle = companyVehicles.find(v => v.id === selectedVehicleId);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-950 flex flex-col items-center justify-center p-4 sm:p-6 text-slate-100 select-none">
@@ -318,115 +350,183 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
             </button>
           </div>
 
-          {/* Tab 1: Driver Login */}
+          {/* Tab 1: Driver Login (Strictly Isolated by Company) */}
           {activeTab === 'driver' && (
-            <form onSubmit={handleDriverSubmit} className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
-                  <span>Selecciona tu Móvil</span>
-                  <span className="text-[10px] text-purple-400 font-medium">
-                    {vehicles.length} registrados
-                  </span>
-                </label>
-
-                {vehicles.length === 0 ? (
-                  <div className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800 text-xs text-amber-400 flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                    <span>No hay móviles dados de alta. El administrador debe registrar uno primero.</span>
+            <div className="space-y-4">
+              {!driverCompanyCode ? (
+                /* Unauthenticated Driver Notice: No vehicles exposed without company identifier */
+                <div className="space-y-4 animate-fade-in">
+                  <div className="p-4 rounded-2xl bg-purple-950/40 border border-purple-800/40 text-center space-y-2.5">
+                    <div className="w-11 h-11 rounded-2xl bg-purple-600/30 text-purple-300 mx-auto flex items-center justify-center shadow-lg shadow-purple-500/20">
+                      <Lock className="w-5 h-5" />
+                    </div>
+                    <h3 className="text-xs font-black text-white uppercase tracking-wider">Flota y Rutas Privadas</h3>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      Por seguridad, los móviles y hojas de ruta son privados para cada empresa registrada.
+                    </p>
+                    <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800 text-[11px] text-left space-y-1.5 mt-2">
+                      <p className="font-bold text-purple-300 flex items-center gap-1.5">
+                        <span>📲 ¿Eres chofer de reparto?</span>
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        Pide a tu administrador que te comparta tu <strong>enlace de ruta por WhatsApp</strong>. Al tocarlo, entrarás directo a tu móvil asignado sin escribir códigos.
+                      </p>
+                    </div>
                   </div>
-                ) : (
-                  <div className="grid grid-cols-1 gap-2">
-                    {vehicles.map((v) => {
-                      const isSelected = v.id === selectedVehicleId;
-                      return (
-                        <button
-                          key={v.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedVehicleId(v.id);
-                            setDriverError(null);
-                          }}
-                          className={`p-3 rounded-2xl border text-left transition-all flex items-center justify-between cursor-pointer ${
-                            isSelected
-                              ? 'bg-purple-600/20 border-purple-500 shadow-md shadow-purple-500/20'
-                              : 'bg-slate-950/60 border-slate-800/80 hover:bg-slate-800/40 text-slate-400'
-                          }`}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div 
-                              className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-black shadow-sm"
-                              style={{ backgroundColor: v.color || '#9333ea' }}
-                            >
-                              🚚
-                            </div>
-                            <div>
-                              <p className={`text-xs font-black ${isSelected ? 'text-white' : 'text-slate-300'}`}>
-                                {v.name}
-                              </p>
-                              <p className="text-[11px] text-slate-400">
-                                Chofer: <span className="text-slate-300 font-medium">{v.driverName}</span>
-                              </p>
-                            </div>
-                          </div>
-                          {isSelected && (
-                            <span className="w-2 h-2 rounded-full bg-purple-400 shadow-sm shadow-purple-400 animate-pulse" />
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
 
-              {/* Driver PIN Input */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
-                  <span>PIN del Móvil</span>
-                  {activeSelectedVehicle && (
-                    <span className="text-[10px] text-slate-500">
-                      Asignado a {activeSelectedVehicle.name}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
+                      <span>O introduce tu Código de Empresa:</span>
+                      <span className="text-[10px] text-purple-400">Asignado por base</span>
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Ej: san-martin-72a1"
+                        value={companyCodeInput}
+                        onChange={(e) => setCompanyCodeInput(e.target.value)}
+                        className="flex-1 bg-slate-950/80 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder:text-slate-600 font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (companyCodeInput.trim()) {
+                            const clean = companyCodeInput.trim().toLowerCase();
+                            setDriverCompanyCode(clean);
+                            localStorage.setItem('optirutas_driver_company_code', clean);
+                          }
+                        }}
+                        className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-black cursor-pointer shadow-md transition-all flex items-center gap-1.5"
+                      >
+                        <Search className="w-3.5 h-3.5" />
+                        <span>Cargar</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* Authenticated / Company-Scoped Driver Form */
+                <form onSubmit={handleDriverSubmit} className="space-y-4 animate-fade-in">
+                  <div className="flex items-center justify-between p-2 rounded-xl bg-slate-950/60 border border-slate-800">
+                    <span className="text-[11px] text-slate-300 flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-purple-400" />
+                      <span>Empresa: <strong className="text-purple-300 font-mono">{driverCompanyCode}</strong></span>
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDriverCompanyCode('');
+                        setCompanyVehicles([]);
+                        localStorage.removeItem('optirutas_driver_company_code');
+                      }}
+                      className="text-[10px] font-bold text-purple-400 hover:underline cursor-pointer"
+                    >
+                      Cambiar
+                    </button>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
+                      <span>Selecciona tu Móvil</span>
+                      <span className="text-[10px] text-purple-400 font-medium">
+                        {companyVehicles.length} registrados
+                      </span>
+                    </label>
+
+                    {companyVehicles.length === 0 ? (
+                      <div className="p-3.5 rounded-2xl bg-slate-950/60 border border-slate-800 text-xs text-amber-400 flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                        <span>No hay móviles dados de alta para esta empresa todavía.</span>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-1">
+                        {companyVehicles.map((v) => {
+                          const isSelected = v.id === selectedVehicleId;
+                          return (
+                            <button
+                              key={v.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedVehicleId(v.id);
+                                setDriverError(null);
+                              }}
+                              className={`p-3 rounded-2xl border text-left transition-all flex items-center justify-between cursor-pointer ${
+                                isSelected
+                                  ? 'bg-purple-600/20 border-purple-500 shadow-md shadow-purple-500/20'
+                                  : 'bg-slate-950/60 border-slate-800/80 hover:bg-slate-800/40 text-slate-400'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div 
+                                  className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-black shadow-sm"
+                                  style={{ backgroundColor: v.color || '#9333ea' }}
+                                >
+                                  🚚
+                                </div>
+                                <div>
+                                  <p className={`text-xs font-black ${isSelected ? 'text-white' : 'text-slate-300'}`}>
+                                    {v.name}
+                                  </p>
+                                  <p className="text-[11px] text-slate-400">
+                                    Chofer: <span className="text-slate-300 font-medium">{v.driverName}</span>
+                                  </p>
+                                </div>
+                              </div>
+                              {isSelected && (
+                                <span className="w-2 h-2 rounded-full bg-purple-400 shadow-sm shadow-purple-400 animate-pulse" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Driver PIN Input */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
+                      <span>PIN del Móvil</span>
+                      {activeSelectedVehicle && (
+                        <span className="text-[10px] text-slate-500">
+                          Asignado a {activeSelectedVehicle.name}
+                        </span>
+                      )}
+                    </label>
+                    <div className="relative">
+                      <KeyRound className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="password"
+                        inputMode="numeric"
+                        maxLength={8}
+                        placeholder="PIN de Conductor"
+                        value={driverPin}
+                        onChange={(e) => {
+                          setDriverPin(e.target.value);
+                          setDriverError(null);
+                        }}
+                        className="w-full bg-slate-950/80 border border-slate-800 rounded-2xl pl-11 pr-4 py-3 text-sm font-mono font-bold text-white focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder:font-sans placeholder:text-slate-600"
+                      />
+                    </div>
+                  </div>
+
+                  {driverError && (
+                    <div className="p-3 rounded-2xl bg-rose-950/50 border border-rose-800/60 text-xs text-rose-300 flex items-center gap-2 animate-fade-in">
+                      <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-400" />
+                      <span>{driverError}</span>
+                    </div>
                   )}
-                </label>
-                <div className="relative">
-                  <KeyRound className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="password"
-                    inputMode="numeric"
-                    maxLength={8}
-                    placeholder="PIN de Conductor"
-                    value={driverPin}
-                    onChange={(e) => {
-                      setDriverPin(e.target.value);
-                      setDriverError(null);
-                    }}
-                    className="w-full bg-slate-950/80 border border-slate-800 rounded-2xl pl-11 pr-4 py-3 text-sm font-mono font-bold text-white focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder:font-sans placeholder:text-slate-600"
-                  />
-                </div>
-              </div>
 
-              {driverError && (
-                <div className="p-3 rounded-2xl bg-rose-950/50 border border-rose-800/60 text-xs text-rose-300 flex items-center gap-2 animate-fade-in">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-400" />
-                  <span>{driverError}</span>
-                </div>
+                  <button
+                    type="submit"
+                    disabled={companyVehicles.length === 0}
+                    className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-sm shadow-xl shadow-purple-600/30 flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-98 disabled:opacity-50"
+                  >
+                    <span>Iniciar Mi Jornada</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </form>
               )}
-
-              <button
-                type="submit"
-                disabled={vehicles.length === 0}
-                className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-sm shadow-xl shadow-purple-600/30 flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-98 disabled:opacity-50"
-              >
-                <span>Iniciar Mi Jornada</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-
-              <div className="text-center pt-2">
-                <p className="text-[11px] text-slate-500">
-                  ¿Acceso directo? Tu administrador puede enviarte un enlace por WhatsApp para entrar sin escribir el PIN.
-                </p>
-              </div>
-            </form>
+            </div>
           )}
 
           {/* Tab 2: Admin Login with Firebase Auth Workflow */}
