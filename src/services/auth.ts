@@ -8,11 +8,23 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase/config';
-import type { UserSession } from '../components/AuthGate';
+import { createCompany, setActiveCompanyId } from './firestore';
 
 export const SESSION_STORAGE_KEY = 'optirutas_session';
 export const DEFAULT_MASTER_ADMIN_PIN = '1234';
 const LOCAL_PIN_CACHE_KEY = 'optirutas_cached_master_pin';
+
+export interface UserSession {
+  role: 'admin' | 'driver';
+  companyId?: string;
+  companyName?: string;
+  vehicleId?: string;
+  vehicleName?: string;
+  driverName?: string;
+  adminEmail?: string;
+  adminUid?: string;
+  loginTime: number;
+}
 
 /**
  * Get the current Master Admin PIN from Firestore (or fallback cache/default)
@@ -69,6 +81,8 @@ export interface AdminUserData {
   uid: string;
   email: string;
   role: 'admin';
+  companyId?: string;
+  companyName?: string;
   createdAt: number;
   lastLoginAt: number;
 }
@@ -102,20 +116,33 @@ export const formatAuthError = (errorCode: string): string => {
 };
 
 /**
- * Sign in Admin with Email & Password
+ * Sign in Admin with Email & Password (resolves tenant/company)
  */
 export const signInAdmin = async (email: string, pass: string): Promise<UserSession> => {
   const credential = await signInWithEmailAndPassword(auth, email.trim(), pass);
   const user = credential.user;
 
-  // Record login timestamp in Firestore admins collection (best-effort)
+  let companyId = 'default';
+  let companyName = 'Optirutas Central';
+
+  // Read admin document from Firestore to resolve companyId
   try {
     const adminRef = doc(db, 'admins', user.uid);
+    const snap = await getDoc(adminRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      if (data?.companyId) companyId = data.companyId;
+      if (data?.companyName) companyName = data.companyName;
+    }
+
+    // Update login timestamp
     await setDoc(
       adminRef, 
       { 
         email: user.email, 
         role: 'admin', 
+        companyId,
+        companyName,
         lastLoginAt: Date.now() 
       }, 
       { merge: true }
@@ -124,8 +151,12 @@ export const signInAdmin = async (email: string, pass: string): Promise<UserSess
     console.warn('Could not update admin login metadata:', e);
   }
 
+  setActiveCompanyId(companyId);
+
   const session: UserSession = {
     role: 'admin',
+    companyId,
+    companyName,
     adminEmail: user.email || email.trim(),
     adminUid: user.uid,
     loginTime: Date.now()
@@ -136,11 +167,26 @@ export const signInAdmin = async (email: string, pass: string): Promise<UserSess
 };
 
 /**
- * Register a new Admin account in Firebase Auth & Firestore
+ * Register a new Admin account and provision their new Company (Tenant)
  */
-export const signUpAdmin = async (email: string, pass: string): Promise<UserSession> => {
+export const signUpAdmin = async (
+  email: string, 
+  pass: string, 
+  companyNameInput?: string
+): Promise<UserSession> => {
   const credential = await createUserWithEmailAndPassword(auth, email.trim(), pass);
   const user = credential.user;
+
+  const resolvedCompanyName = companyNameInput?.trim() || 'Mi Empresa Logística';
+  
+  // Provision company in Firestore
+  let companyId = 'default';
+  try {
+    const company = await createCompany(resolvedCompanyName, user.email || email.trim(), user.uid);
+    companyId = company.id;
+  } catch (e) {
+    console.warn('Could not auto-provision company:', e);
+  }
 
   // Register in Firestore admins collection
   try {
@@ -149,6 +195,8 @@ export const signUpAdmin = async (email: string, pass: string): Promise<UserSess
       uid: user.uid,
       email: user.email,
       role: 'admin',
+      companyId,
+      companyName: resolvedCompanyName,
       createdAt: Date.now(),
       lastLoginAt: Date.now()
     });
@@ -156,8 +204,12 @@ export const signUpAdmin = async (email: string, pass: string): Promise<UserSess
     console.warn('Could not create admin document:', e);
   }
 
+  setActiveCompanyId(companyId);
+
   const session: UserSession = {
     role: 'admin',
+    companyId,
+    companyName: resolvedCompanyName,
     adminEmail: user.email || email.trim(),
     adminUid: user.uid,
     loginTime: Date.now()
@@ -190,10 +242,29 @@ export const signOutAdmin = async (): Promise<void> => {
  * Subscribe to Firebase Auth state changes
  */
 export const subscribeToAuth = (onSession: (session: UserSession | null) => void) => {
-  return onAuthStateChanged(auth, (user: User | null) => {
+  return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
+      let companyId = 'default';
+      let companyName = 'Optirutas Central';
+
+      try {
+        const adminRef = doc(db, 'admins', user.uid);
+        const snap = await getDoc(adminRef);
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data?.companyId) companyId = data.companyId;
+          if (data?.companyName) companyName = data.companyName;
+        }
+      } catch (err) {
+        console.warn('Could not read admin doc on state change:', err);
+      }
+
+      setActiveCompanyId(companyId);
+
       const session: UserSession = {
         role: 'admin',
+        companyId,
+        companyName,
         adminEmail: user.email || undefined,
         adminUid: user.uid,
         loginTime: Date.now()

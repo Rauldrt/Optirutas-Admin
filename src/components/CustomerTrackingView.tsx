@@ -1,7 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import type { Stop, Vehicle, Client } from '../services/firestore';
+import { 
+  subscribeToSingleStop, 
+  subscribeToSingleVehicle, 
+  type Stop, 
+  type Vehicle, 
+  type Client 
+} from '../services/firestore';
 import { calculateDistanceKm, formatWhatsAppPhone } from '../utils/geo';
 import { 
   Package, 
@@ -72,16 +78,33 @@ export const CustomerTrackingView: React.FC<CustomerTrackingViewProps> = ({
     }
   }, [darkMode]);
 
-  // Find target stop in real-time
+  // Fallback direct subscription for end-customers (zero-login / tenant-safe)
+  const [directStop, setDirectStop] = useState<Stop | null>(null);
+  const [directVehicle, setDirectVehicle] = useState<Vehicle | null>(null);
+
+  useEffect(() => {
+    if (!stopId) return;
+    const unsub = subscribeToSingleStop(stopId, (s) => setDirectStop(s));
+    return () => unsub();
+  }, [stopId]);
+
+  // Find target stop in real-time (from props or direct subscription)
   const stop = useMemo(() => {
-    return stops.find(s => s.id === stopId) || null;
-  }, [stops, stopId]);
+    return stops.find(s => s.id === stopId) || directStop || null;
+  }, [stops, stopId, directStop]);
+
+  const targetVehicleId = stop?.vehicleId;
+  useEffect(() => {
+    if (!targetVehicleId) return;
+    const unsub = subscribeToSingleVehicle(targetVehicleId, (v) => setDirectVehicle(v));
+    return () => unsub();
+  }, [targetVehicleId]);
 
   // Find assigned vehicle
   const vehicle = useMemo(() => {
     if (!stop?.vehicleId) return null;
-    return vehicles.find(v => v.id === stop.vehicleId) || null;
-  }, [stop, vehicles]);
+    return vehicles.find(v => v.id === stop.vehicleId) || directVehicle || null;
+  }, [stop, vehicles, directVehicle]);
 
   // Find matching client
   const matchedClient = useMemo(() => {

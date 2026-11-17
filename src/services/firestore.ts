@@ -3,15 +3,23 @@ import {
   onSnapshot, 
   doc, 
   setDoc, 
+  getDoc,
   updateDoc, 
   deleteDoc, 
-  query, 
-  orderBy,
   writeBatch
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 
 // TypeScript Interfaces
+export interface Company {
+  id: string;
+  name: string;
+  slug: string;
+  ownerEmail?: string;
+  ownerUid?: string;
+  createdAt: number;
+}
+
 export interface Stop {
   id: string;
   name: string;
@@ -28,6 +36,7 @@ export interface Stop {
   dwellTimeSeconds?: number;
   vehicleId?: string;
   vehicleName?: string;
+  companyId?: string;
 }
 
 export interface VehicleTelemetry {
@@ -52,6 +61,7 @@ export interface Vehicle {
   pin?: string;
   fuelConsumptionL100km?: number;
   telemetry?: VehicleTelemetry;
+  companyId?: string;
   createdAt?: number;
 }
 
@@ -65,6 +75,7 @@ export interface Client {
   phone?: string;
   email?: string;
   neighborhood?: string;
+  companyId?: string;
 }
 
 export interface RouteHistory {
@@ -84,6 +95,7 @@ export interface RouteHistory {
   costPerStop?: number;
   vehicleId?: string;
   vehicleName?: string;
+  companyId?: string;
 }
 
 // Collection Names
@@ -91,6 +103,7 @@ const STOPS_COLLECTION = 'delivery_stops';
 const VEHICLES_COLLECTION = 'vehicles';
 const CLIENTS_COLLECTION = 'clients';
 const HISTORY_COLLECTION = 'route_history';
+const COMPANIES_COLLECTION = 'companies';
 
 // Helper to generate a 32-bit signed integer ID as a string.
 // This is required because the Android app's local SQLite database (Room/SQLite)
@@ -102,14 +115,124 @@ const generateNumericId = (): string => {
   return Math.floor(Math.random() * (max - min + 1) + min).toString();
 };
 
+// ---------------- MULTI-TENANCY / COMPANY SERVICES ----------------
+
+let currentActiveCompanyId: string = 'default';
+
+export const setActiveCompanyId = (companyId: string) => {
+  currentActiveCompanyId = companyId || 'default';
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem('optirutas_active_company_id', currentActiveCompanyId);
+    } catch (e) {
+      // ignore
+    }
+  }
+};
+
+export const getActiveCompanyId = (): string => {
+  if (typeof window !== 'undefined') {
+    try {
+      const savedSession = localStorage.getItem('optirutas_session');
+      if (savedSession) {
+        const session = JSON.parse(savedSession);
+        if (session.companyId) return session.companyId;
+      }
+      const savedCompany = localStorage.getItem('optirutas_active_company_id');
+      if (savedCompany) return savedCompany;
+    } catch (e) {
+      // ignore
+    }
+  }
+  return currentActiveCompanyId || 'default';
+};
+
+/**
+ * Creates a new company in Firestore
+ */
+export const createCompany = async (
+  companyName: string, 
+  ownerEmail?: string, 
+  ownerUid?: string
+): Promise<Company> => {
+  const cleanName = companyName.trim();
+  const slug = cleanName
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || 'empresa';
+
+  // Add random suffix for collision prevention (e.g., "distribuidora-san-martin-72a1")
+  const randomSuffix = Math.random().toString(36).substring(2, 6);
+  const companyId = `${slug}-${randomSuffix}`;
+
+  const company: Company = {
+    id: companyId,
+    name: cleanName,
+    slug,
+    ownerEmail: ownerEmail?.trim(),
+    ownerUid: ownerUid?.trim(),
+    createdAt: Date.now()
+  };
+
+  try {
+    await setDoc(doc(db, COMPANIES_COLLECTION, companyId), company);
+  } catch (err) {
+    console.warn('Could not persist company document:', err);
+  }
+
+  setActiveCompanyId(companyId);
+  return company;
+};
+
+/**
+ * Retrieves company details by ID
+ */
+export const getCompany = async (companyId: string): Promise<Company | null> => {
+  if (!companyId || companyId === 'default') {
+    return {
+      id: 'default',
+      name: 'Optirutas Demo & Flota Central',
+      slug: 'default',
+      createdAt: Date.now()
+    };
+  }
+  try {
+    const snap = await getDoc(doc(db, COMPANIES_COLLECTION, companyId));
+    if (snap.exists()) {
+      return snap.data() as Company;
+    }
+  } catch (err) {
+    console.warn('Error fetching company:', err);
+  }
+  return null;
+};
+
 // ---------------- STOPS SERVICES ----------------
 
-export const subscribeToStops = (callback: (stops: Stop[]) => void) => {
-  const q = query(collection(db, STOPS_COLLECTION), orderBy('orderIndex', 'asc'));
+export const subscribeToStops = (
+  callback: (stops: Stop[]) => void, 
+  companyId?: string
+) => {
+  const targetCompany = companyId || getActiveCompanyId();
+  const q = collection(db, STOPS_COLLECTION);
+
   return onSnapshot(q, (snapshot) => {
     const stops: Stop[] = [];
     snapshot.forEach((doc) => {
       const data = doc.data();
+      const docCompany = data.companyId || 'default';
+
+      // Tenant isolation filter:
+      // If targetCompany is 'default', include items where companyId is 'default' OR unset (legacy demo data)
+      // Otherwise, only include documents where companyId matches exactly
+      const matchesCompany = (targetCompany === 'default')
+        ? (!data.companyId || data.companyId === 'default')
+        : (data.companyId === targetCompany);
+
+      if (!matchesCompany) return;
+
       stops.push({
         id: doc.id,
         name: data.name || '',
@@ -126,19 +249,60 @@ export const subscribeToStops = (callback: (stops: Stop[]) => void) => {
         dwellTimeSeconds: data.dwellTimeSeconds !== undefined && data.dwellTimeSeconds !== null ? Number(data.dwellTimeSeconds) : undefined,
         vehicleId: data.vehicleId || undefined,
         vehicleName: data.vehicleName || undefined,
+        companyId: docCompany,
       });
     });
+
+    // In-memory sort by orderIndex ascending
+    stops.sort((a, b) => a.orderIndex - b.orderIndex);
     callback(stops);
   }, (error) => {
     console.error("Error subscribing to stops: ", error);
   });
 };
 
-export const addStop = async (stop: Omit<Stop, 'id'> & { id?: string }) => {
+export const subscribeToSingleStop = (
+  stopId: string, 
+  callback: (stop: Stop | null) => void
+) => {
+  const docRef = doc(db, STOPS_COLLECTION, stopId);
+  return onSnapshot(docRef, (snapshot) => {
+    if (!snapshot.exists()) {
+      callback(null);
+      return;
+    }
+    const data = snapshot.data();
+    callback({
+      id: snapshot.id,
+      name: data.name || '',
+      address: data.address || '',
+      latitude: Number(data.latitude) || 0,
+      longitude: Number(data.longitude) || 0,
+      completed: !!data.completed,
+      orderIndex: data.orderIndex !== undefined ? Number(data.orderIndex) : 0,
+      deliveryDay: data.deliveryDay || '',
+      mapLink: data.mapLink || '',
+      arrivedAt: data.arrivedAt ? Number(data.arrivedAt) : undefined,
+      completedAt: data.completedAt ? Number(data.completedAt) : undefined,
+      dwellTimeMinutes: data.dwellTimeMinutes !== undefined && data.dwellTimeMinutes !== null ? Number(data.dwellTimeMinutes) : undefined,
+      dwellTimeSeconds: data.dwellTimeSeconds !== undefined && data.dwellTimeSeconds !== null ? Number(data.dwellTimeSeconds) : undefined,
+      vehicleId: data.vehicleId || undefined,
+      vehicleName: data.vehicleName || undefined,
+      companyId: data.companyId || 'default',
+    });
+  }, (error) => {
+    console.error("Error subscribing to single stop: ", error);
+    callback(null);
+  });
+};
+
+export const addStop = async (stop: Omit<Stop, 'id'> & { id?: string; companyId?: string }) => {
   try {
     const id = stop.id || generateNumericId();
+    const companyId = stop.companyId || getActiveCompanyId();
     const data: Record<string, any> = {
       id,
+      companyId,
       name: stop.name,
       address: stop.address,
       latitude: Number(stop.latitude),
@@ -200,6 +364,7 @@ export const updateStop = async (id: string, updates: Partial<Omit<Stop, 'id'>>)
     if (updates.mapLink !== undefined) cleanUpdates.mapLink = updates.mapLink;
     if (updates.vehicleId !== undefined) cleanUpdates.vehicleId = updates.vehicleId;
     if (updates.vehicleName !== undefined) cleanUpdates.vehicleName = updates.vehicleName;
+    if (updates.companyId !== undefined) cleanUpdates.companyId = updates.companyId;
 
     await updateDoc(docRef, cleanUpdates);
   } catch (error) {
@@ -235,12 +400,25 @@ export const deleteStop = async (id: string) => {
 
 // ---------------- CLIENTS SERVICES ----------------
 
-export const subscribeToClients = (callback: (clients: Client[]) => void) => {
+export const subscribeToClients = (
+  callback: (clients: Client[]) => void, 
+  companyId?: string
+) => {
+  const targetCompany = companyId || getActiveCompanyId();
   const q = collection(db, CLIENTS_COLLECTION);
+
   return onSnapshot(q, (snapshot) => {
     const clients: Client[] = [];
     snapshot.forEach((doc) => {
       const data = doc.data();
+      const docCompany = data.companyId || 'default';
+
+      const matchesCompany = (targetCompany === 'default')
+        ? (!data.companyId || data.companyId === 'default')
+        : (data.companyId === targetCompany);
+
+      if (!matchesCompany) return;
+
       clients.push({
         id: doc.id,
         name: data.name || '',
@@ -250,19 +428,24 @@ export const subscribeToClients = (callback: (clients: Client[]) => void) => {
         mapLink: data.mapLink || '',
         phone: data.phone || '',
         email: data.email || '',
+        companyId: docCompany,
       });
     });
+
+    clients.sort((a, b) => a.name.localeCompare(b.name));
     callback(clients);
   }, (error) => {
     console.error("Error subscribing to clients: ", error);
   });
 };
 
-export const addClient = async (client: Omit<Client, 'id'> & { id?: string }) => {
+export const addClient = async (client: Omit<Client, 'id'> & { id?: string; companyId?: string }) => {
   try {
     const id = client.id || generateNumericId();
+    const companyId = client.companyId || getActiveCompanyId();
     const data: Record<string, any> = {
       id,
+      companyId,
       name: client.name,
       address: client.address,
       latitude: Number(client.latitude),
@@ -291,6 +474,7 @@ export const updateClient = async (id: string, updates: Partial<Omit<Client, 'id
     if (updates.mapLink !== undefined) cleanUpdates.mapLink = updates.mapLink;
     if (updates.phone !== undefined) cleanUpdates.phone = updates.phone;
     if (updates.email !== undefined) cleanUpdates.email = updates.email;
+    if (updates.companyId !== undefined) cleanUpdates.companyId = updates.companyId;
 
     await updateDoc(docRef, cleanUpdates);
   } catch (error) {
@@ -310,12 +494,25 @@ export const deleteClient = async (id: string) => {
 
 // ---------------- HISTORY SERVICES ----------------
 
-export const subscribeToHistory = (callback: (history: RouteHistory[]) => void) => {
-  const q = query(collection(db, HISTORY_COLLECTION), orderBy('dateMillis', 'desc'));
+export const subscribeToHistory = (
+  callback: (history: RouteHistory[]) => void, 
+  companyId?: string
+) => {
+  const targetCompany = companyId || getActiveCompanyId();
+  const q = collection(db, HISTORY_COLLECTION);
+
   return onSnapshot(q, (snapshot) => {
     const history: RouteHistory[] = [];
     snapshot.forEach((doc) => {
       const data = doc.data();
+      const docCompany = data.companyId || 'default';
+
+      const matchesCompany = (targetCompany === 'default')
+        ? (!data.companyId || data.companyId === 'default')
+        : (data.companyId === targetCompany);
+
+      if (!matchesCompany) return;
+
       history.push({
         id: doc.id,
         dateMillis: Number(data.dateMillis) || Date.now(),
@@ -333,19 +530,24 @@ export const subscribeToHistory = (callback: (history: RouteHistory[]) => void) 
         costPerStop: data.costPerStop !== undefined ? Number(data.costPerStop) : undefined,
         vehicleId: data.vehicleId || '',
         vehicleName: data.vehicleName || '',
+        companyId: docCompany,
       });
     });
+
+    history.sort((a, b) => b.dateMillis - a.dateMillis);
     callback(history);
   }, (error) => {
     console.error("Error subscribing to history: ", error);
   });
 };
 
-export const addHistory = async (historyItem: Omit<RouteHistory, 'id'> & { id?: string }) => {
+export const addHistory = async (historyItem: Omit<RouteHistory, 'id'> & { id?: string; companyId?: string }) => {
   try {
     const id = historyItem.id || generateNumericId();
+    const companyId = historyItem.companyId || getActiveCompanyId();
     const data: Record<string, any> = {
       id,
+      companyId,
       dateMillis: Number(historyItem.dateMillis),
       day: historyItem.day,
       stopsCount: Number(historyItem.stopsCount),
@@ -381,12 +583,25 @@ export const deleteHistory = async (id: string) => {
 
 // ---------------- VEHICLES / MÓVILES SERVICES ----------------
 
-export const subscribeToVehicles = (callback: (vehicles: Vehicle[]) => void) => {
-  const q = query(collection(db, VEHICLES_COLLECTION));
+export const subscribeToVehicles = (
+  callback: (vehicles: Vehicle[]) => void, 
+  companyId?: string
+) => {
+  const targetCompany = companyId || getActiveCompanyId();
+  const q = collection(db, VEHICLES_COLLECTION);
+
   return onSnapshot(q, (snapshot) => {
     const vehicles: Vehicle[] = [];
     snapshot.forEach((doc) => {
       const data = doc.data();
+      const docCompany = data.companyId || 'default';
+
+      const matchesCompany = (targetCompany === 'default')
+        ? (!data.companyId || data.companyId === 'default')
+        : (data.companyId === targetCompany);
+
+      if (!matchesCompany) return;
+
       vehicles.push({
         id: doc.id,
         name: data.name || 'Móvil',
@@ -407,10 +622,11 @@ export const subscribeToVehicles = (callback: (vehicles: Vehicle[]) => void) => 
           speed: data.telemetry.speed !== undefined ? Number(data.telemetry.speed) : undefined,
           updatedAt: Number(data.telemetry.updatedAt) || Date.now(),
         } : undefined,
+        companyId: docCompany,
         createdAt: Number(data.createdAt) || Date.now(),
       });
     });
-    // Sort by name or id
+
     vehicles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
     callback(vehicles);
   }, (error) => {
@@ -418,11 +634,53 @@ export const subscribeToVehicles = (callback: (vehicles: Vehicle[]) => void) => 
   });
 };
 
-export const addVehicle = async (vehicle: Omit<Vehicle, 'id'> & { id?: string }) => {
+export const subscribeToSingleVehicle = (
+  vehicleId: string, 
+  callback: (vehicle: Vehicle | null) => void
+) => {
+  const docRef = doc(db, VEHICLES_COLLECTION, vehicleId);
+  return onSnapshot(docRef, (snapshot) => {
+    if (!snapshot.exists()) {
+      callback(null);
+      return;
+    }
+    const data = snapshot.data();
+    callback({
+      id: snapshot.id,
+      name: data.name || 'Móvil',
+      driverName: data.driverName || 'Sin Chofer',
+      driverPhone: data.driverPhone || '',
+      plate: data.plate || '',
+      model: data.model || '',
+      color: data.color || '#6366f1',
+      status: data.status || 'available',
+      capacity: data.capacity || '',
+      notes: data.notes || '',
+      pin: data.pin || '1234',
+      fuelConsumptionL100km: data.fuelConsumptionL100km !== undefined ? Number(data.fuelConsumptionL100km) : undefined,
+      telemetry: data.telemetry ? {
+        lat: Number(data.telemetry.lat) || 0,
+        lng: Number(data.telemetry.lng) || 0,
+        heading: data.telemetry.heading !== undefined ? Number(data.telemetry.heading) : undefined,
+        speed: data.telemetry.speed !== undefined ? Number(data.telemetry.speed) : undefined,
+        updatedAt: Number(data.telemetry.updatedAt) || Date.now(),
+      } : undefined,
+      companyId: data.companyId || 'default',
+      createdAt: Number(data.createdAt) || Date.now(),
+    });
+  }, (error) => {
+    console.error("Error subscribing to single vehicle: ", error);
+    callback(null);
+  });
+};
+
+export const addVehicle = async (vehicle: Omit<Vehicle, 'id'> & { id?: string; companyId?: string }) => {
   try {
     const id = vehicle.id || generateNumericId();
+    const companyId = vehicle.companyId || getActiveCompanyId();
     const data: Record<string, any> = {
       id,
+      companyId,
       name: vehicle.name.trim(),
       driverName: vehicle.driverName.trim(),
       driverPhone: vehicle.driverPhone?.trim() || '',
@@ -461,6 +719,7 @@ export const updateVehicle = async (id: string, updates: Partial<Omit<Vehicle, '
     if (updates.notes !== undefined) cleanUpdates.notes = updates.notes.trim();
     if (updates.pin !== undefined) cleanUpdates.pin = updates.pin.trim() || '1234';
     if (updates.fuelConsumptionL100km !== undefined) cleanUpdates.fuelConsumptionL100km = Number(updates.fuelConsumptionL100km);
+    if (updates.companyId !== undefined) cleanUpdates.companyId = updates.companyId;
 
     await updateDoc(docRef, cleanUpdates);
   } catch (error) {

@@ -3,7 +3,7 @@ import type { Vehicle } from '../services/firestore';
 import { 
   Truck, ShieldCheck, KeyRound, Lock, ArrowRight, UserCheck, 
   AlertCircle, Compass, Mail, Eye, EyeOff, CheckCircle2, UserPlus,
-  ArrowLeft, ShieldAlert, Download
+  ArrowLeft, ShieldAlert, Download, Building2
 } from 'lucide-react';
 import { 
   signInAdmin, 
@@ -11,20 +11,13 @@ import {
   resetAdminPassword, 
   formatAuthError, 
   SESSION_STORAGE_KEY, 
-  verifyAdminPin 
+  verifyAdminPin,
+  type UserSession 
 } from '../services/auth';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { PWAInstallModal } from './PWAInstallModal';
 
-export interface UserSession {
-  role: 'admin' | 'driver';
-  vehicleId?: string;
-  vehicleName?: string;
-  driverName?: string;
-  adminEmail?: string;
-  adminUid?: string;
-  loginTime: number;
-}
+export type { UserSession };
 
 interface AuthGateProps {
   vehicles: Vehicle[];
@@ -41,6 +34,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
 
   // Admin login state with Firebase Auth
   const [adminSubMode, setAdminSubMode] = useState<'login' | 'signup' | 'forgot' | 'pin_backup'>('login');
+  const [companyName, setCompanyName] = useState<string>('');
   const [adminEmail, setAdminEmail] = useState<string>('');
   const [adminPassword, setAdminPassword] = useState<string>('');
   const [adminConfirmPassword, setAdminConfirmPassword] = useState<string>('');
@@ -61,7 +55,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
   }, [vehicles, selectedVehicleId]);
 
   // Handle URL Query Params (Magic Links, e.g. from WhatsApp)
-  // Example: https://optirutas-admin.vercel.app/?mode=driver&vehicleId=123&pin=1234
+  // Example: https://optirutas-admin.vercel.app/?mode=driver&vehicleId=123&pin=1234&companyId=xyz
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
@@ -70,6 +64,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
     if (mode === 'driver') {
       const vId = params.get('vehicleId');
       const pin = params.get('pin');
+      const paramCompanyId = params.get('companyId');
       if (vId && pin && vehicles.length > 0) {
         const targetVehicle = vehicles.find(v => v.id === vId);
         if (targetVehicle) {
@@ -77,6 +72,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
           if (pin.trim() === expectedPin.trim()) {
             const session: UserSession = {
               role: 'driver',
+              companyId: paramCompanyId || targetVehicle.companyId || 'default',
               vehicleId: targetVehicle.id,
               vehicleName: targetVehicle.name,
               driverName: targetVehicle.driverName,
@@ -97,6 +93,8 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
           if (isValid) {
             const session: UserSession = {
               role: 'admin',
+              companyId: 'default',
+              companyName: 'Optirutas Demo & Flota Central',
               loginTime: Date.now()
             };
             localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
@@ -127,6 +125,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
 
     const session: UserSession = {
       role: 'driver',
+      companyId: vehicle.companyId || 'default',
       vehicleId: vehicle.id,
       vehicleName: vehicle.name,
       driverName: vehicle.driverName,
@@ -157,8 +156,8 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
         setIsAdminLoading(false);
       }
     } else if (adminSubMode === 'signup') {
-      if (!adminEmail.trim() || !adminPassword) {
-        setAdminError('Completa todos los campos para el registro.');
+      if (!adminEmail.trim() || !adminPassword || !companyName.trim()) {
+        setAdminError('Completa todos los campos, incluyendo el nombre de tu empresa.');
         return;
       }
       if (adminPassword.length < 6) {
@@ -171,7 +170,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
       }
       setIsAdminLoading(true);
       try {
-        const session = await signUpAdmin(adminEmail, adminPassword);
+        const session = await signUpAdmin(adminEmail, adminPassword, companyName);
         onLoginSuccess(session);
       } catch (err: any) {
         console.error('Firebase signup error:', err);
@@ -216,6 +215,8 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
 
       const session: UserSession = {
         role: 'admin',
+        companyId: 'default',
+        companyName: 'Optirutas Demo & Flota Central',
         loginTime: Date.now()
       };
       localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
@@ -516,6 +517,30 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
                       </button>
                     )}
                   </div>
+
+                  {/* Company / Business Name (only in signup) */}
+                  {adminSubMode === 'signup' && (
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
+                        <span>Nombre de tu Empresa / Negocio</span>
+                        <span className="text-[10px] text-purple-400 font-bold">Base Privada</span>
+                      </label>
+                      <div className="relative">
+                        <Building2 className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          required
+                          placeholder="Ej: Distribuidora San Martín, Super El Trébol"
+                          value={companyName}
+                          onChange={(e) => {
+                            setCompanyName(e.target.value);
+                            setAdminError(null);
+                          }}
+                          className="w-full bg-slate-950/80 border border-slate-800 rounded-2xl pl-11 pr-4 py-2.5 text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder:text-slate-600"
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   {/* Email Input */}
                   <div className="space-y-1">

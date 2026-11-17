@@ -10,6 +10,7 @@ interface SidebarProps {
   setDarkMode: (dark: boolean) => void;
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
+  companyName?: string;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
@@ -18,7 +19,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   darkMode, 
   setDarkMode,
   sidebarOpen,
-  setSidebarOpen
+  setSidebarOpen,
+  companyName
 }) => {
   const { isInstallable, installApp, showInstallGuide, setShowInstallGuide, isIOS } = usePWAInstall();
 
@@ -45,7 +47,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <h1 className="font-extrabold text-lg bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300 bg-clip-text text-transparent leading-none">
                 Optirutas
               </h1>
-              <span className="text-xs font-semibold text-purple-600 dark:text-purple-400">Admin Panel</span>
+              <span className="text-xs font-semibold text-purple-600 dark:text-purple-400 truncate max-w-[140px] block" title={companyName || 'Admin Panel'}>
+                {companyName || 'Admin Panel'}
+              </span>
             </div>
           </div>
           {/* Mobile Close Button */}

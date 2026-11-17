@@ -179,7 +179,8 @@ export const VehicleManagement: React.FC<VehicleManagementProps> = ({
     if (typeof window === 'undefined') return '';
     const origin = window.location.origin;
     const path = window.location.pathname;
-    return `${origin}${path}?mode=driver&vehicleId=${v.id}&pin=${v.pin || '1234'}`;
+    const companyParam = v.companyId ? `&companyId=${encodeURIComponent(v.companyId)}` : '';
+    return `${origin}${path}?mode=driver&vehicleId=${v.id}&pin=${v.pin || '1234'}${companyParam}`;
   };
 
   const handleShareMagicLink = (v: Vehicle) => {

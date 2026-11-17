@@ -20,7 +20,7 @@ import {
   updateStop
 } from './services/firestore';
 import { getCurrentDayNameEs } from './utils/geo';
-import { Database, PlusCircle, CheckCircle2, MapPin, Menu, Clock, Navigation, Download, LogOut, KeyRound } from 'lucide-react';
+import { Database, PlusCircle, CheckCircle2, MapPin, Menu, Clock, Navigation, Download, LogOut, KeyRound, Building2 } from 'lucide-react';
 import { usePWAInstall } from './hooks/usePWAInstall';
 import { AuthGate, type UserSession } from './components/AuthGate';
 import { DriverView } from './components/DriverView';
@@ -236,12 +236,13 @@ function App() {
     return () => mediaQuery.removeEventListener('change', handleSystemThemeChange);
   }, []);
 
-  // Subscribe to Firestore collections on mount
+  // Subscribe to Firestore collections scoped to the active tenant/company
   useEffect(() => {
-    const unsubStops = subscribeToStops((data) => setStops(data));
-    const unsubClients = subscribeToClients((data) => setClients(data));
-    const unsubVehicles = subscribeToVehicles((data) => setVehicles(data));
-    const unsubHistory = subscribeToHistory((data) => setHistory(data));
+    const activeCompany = session?.companyId || 'default';
+    const unsubStops = subscribeToStops((data) => setStops(data), activeCompany);
+    const unsubClients = subscribeToClients((data) => setClients(data), activeCompany);
+    const unsubVehicles = subscribeToVehicles((data) => setVehicles(data), activeCompany);
+    const unsubHistory = subscribeToHistory((data) => setHistory(data), activeCompany);
 
     return () => {
       unsubStops();
@@ -249,7 +250,7 @@ function App() {
       unsubVehicles();
       unsubHistory();
     };
-  }, []);
+  }, [session?.companyId]);
 
   const handleSelectLocation = (coords: [number, number]) => {
     setSelectedCoords(coords);
@@ -452,6 +453,7 @@ function App() {
         setDarkMode={setDarkMode}
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
+        companyName={session?.companyName}
       />
 
       {/* Main Content Area */}
@@ -533,6 +535,14 @@ function App() {
                 )}
               </span>
             </div>
+
+            {/* Multi-Tenant Company Badge */}
+            {session?.companyName && (
+              <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-purple-50 dark:bg-purple-950/60 border border-purple-200/60 dark:border-purple-800/60 text-purple-700 dark:text-purple-300 text-xs font-black truncate max-w-[200px]" title={`Empresa Activa: ${session.companyName} (${session.companyId || 'default'})`}>
+                <Building2 className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 flex-shrink-0" />
+                <span className="truncate">{session.companyName}</span>
+              </span>
+            )}
 
             {/* Admin User Badge if authenticated */}
             {session?.adminEmail && (
