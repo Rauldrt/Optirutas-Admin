@@ -131,6 +131,44 @@ export const extractPhoneFromText = (text: string): string | null => {
 };
 
 /**
+ * Normalizes any phone number into an international format ready for WhatsApp (wa.me)
+ * Special handling for Argentine phone numbers (+54 9 ...)
+ */
+export const formatWhatsAppPhone = (rawPhone: string): string => {
+  if (!rawPhone) return '';
+  let digits = rawPhone.replace(/\D/g, '');
+  if (!digits) return '';
+
+  // Remove leading 0 (common trunk prefix in Argentina: 03757 -> 3757)
+  if (digits.startsWith('0')) {
+    digits = digits.substring(1);
+  }
+
+  // Remove mobile prefix 15 if present after area code (e.g., 03757 15 123456)
+  if (digits.length === 12 && digits.includes('15')) {
+    if (digits.startsWith('1115')) {
+      digits = '11' + digits.substring(4);
+    } else if (digits.substring(2, 4) === '15') {
+      digits = digits.substring(0, 2) + digits.substring(4);
+    } else if (digits.substring(3, 5) === '15') {
+      digits = digits.substring(0, 3) + digits.substring(5);
+    } else if (digits.substring(4, 6) === '15') {
+      digits = digits.substring(0, 4) + digits.substring(6);
+    }
+  }
+
+  // If 10 digits (Standard Argentine local + area code, e.g. 3757 123456 or 11 23456789), prepend 549
+  if (digits.length === 10) {
+    digits = `549${digits}`;
+  } else if (digits.startsWith('54') && !digits.startsWith('549') && digits.length === 12) {
+    // 54 + 10 digits -> insert 9 for mobile: 549...
+    digits = `549${digits.substring(2)}`;
+  }
+
+  return digits;
+};
+
+/**
  * Extract coordinates from a Google Maps URL or raw text coordinates
  */
 export const extractCoords = (urlOrText: string): { lat: number; lng: number } | null => {

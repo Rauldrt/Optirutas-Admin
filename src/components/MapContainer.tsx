@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, Circle, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { updateStop, addStop, type Stop, type Client, type Vehicle } from '../services/firestore';
-import { calculateRouteDistanceKm, calculateDistanceKm, getCurrentDayNameEs, formatDwellDuration } from '../utils/geo';
+import { calculateRouteDistanceKm, calculateDistanceKm, getCurrentDayNameEs, formatDwellDuration, formatWhatsAppPhone } from '../utils/geo';
 import { 
   Crosshair, Route as RouteIcon, X, MousePointerClick, Send, BoxSelect,
   Navigation, Locate, LocateFixed, Volume2, VolumeX, CheckCircle2, AlertCircle,
@@ -1262,8 +1262,21 @@ export const MapView: React.FC<MapViewProps> = ({
                   </div>
 
                   <h3 className="font-extrabold text-sm mb-1">{client.name}</h3>
-                  <p className="text-xs mb-2"><b>Dirección:</b> {client.address}</p>
-                  {client.phone && <p className="text-xs mb-2"><b>Tel:</b> {client.phone}</p>}
+                  <p className="text-xs mb-1.5"><b>Dirección:</b> {client.address}</p>
+                  {client.phone && (
+                    <div className="flex items-center justify-between gap-1 mb-2 text-xs">
+                      <span><b>Tel:</b> {client.phone}</span>
+                      <a
+                        href={`https://wa.me/${formatWhatsAppPhone(client.phone)}?text=${encodeURIComponent(`¡Hola *${client.name}*! Te escribimos desde Optirutas.`)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] font-black text-emerald-700 bg-emerald-100 hover:bg-emerald-200 px-2 py-0.5 rounded-lg border border-emerald-300 no-underline"
+                        title="Enviar WhatsApp directo"
+                      >
+                        <span>💬 WhatsApp</span>
+                      </a>
+                    </div>
+                  )}
 
                   <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800 flex flex-col gap-2">
                     <button
@@ -1326,7 +1339,20 @@ export const MapView: React.FC<MapViewProps> = ({
                     )}
                   </div>
                   <p className="text-xs mb-1"><b>Dirección:</b> {client.address}</p>
-                  {client.phone && <p className="text-xs mb-1"><b>Tel:</b> {client.phone}</p>}
+                  {client.phone && (
+                    <div className="flex items-center justify-between gap-1 mb-1 text-xs">
+                      <span><b>Tel:</b> {client.phone}</span>
+                      <a
+                        href={`https://wa.me/${formatWhatsAppPhone(client.phone)}?text=${encodeURIComponent(`¡Hola *${client.name}*! Te escribimos desde Optirutas.`)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] font-black text-emerald-700 bg-emerald-100 hover:bg-emerald-200 px-2 py-0.5 rounded-lg border border-emerald-300 no-underline"
+                        title="Enviar WhatsApp directo"
+                      >
+                        <span>💬 WA</span>
+                      </a>
+                    </div>
+                  )}
                   {client.email && <p className="text-xs mb-1"><b>Email:</b> {client.email}</p>}
 
                   <div className="flex items-center justify-between gap-2 pt-2 mt-2 border-t border-slate-200/60">

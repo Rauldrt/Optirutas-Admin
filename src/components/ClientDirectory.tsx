@@ -10,6 +10,7 @@ import {
   resolveMapLinkCoords, 
   reverseGeocodeCoords,
   extractPhoneFromText,
+  formatWhatsAppPhone,
   computeOptimizedStopOrder, 
   calculateSequenceDistanceKm,
   getCurrentDayNameEs,
@@ -118,6 +119,76 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
   const [quickVehicleId, setQuickVehicleId] = useState<string>('');
   const [isQuickSaving, setIsQuickSaving] = useState(false);
   const [sendToRouteImmediately, setSendToRouteImmediately] = useState(true);
+
+  // Direct WhatsApp Modal State
+  const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
+  const [targetWhatsAppClient, setTargetWhatsAppClient] = useState<Client | null>(null);
+  const [whatsAppPhone, setWhatsAppPhone] = useState('');
+  const [savePhoneToClient, setSavePhoneToClient] = useState(true);
+  const [whatsAppMessage, setWhatsAppMessage] = useState('');
+  const [isSavingPhone, setIsSavingPhone] = useState(false);
+
+  const getWhatsAppTemplates = (client: Client) => [
+    {
+      label: '📦 En Camino',
+      text: `¡Hola *${client.name}*! Te avisamos desde el equipo de logística que tu pedido ya está en camino a tu domicilio.`
+    },
+    {
+      label: '📍 Confirmar Ubicación',
+      text: `¡Hola *${client.name}*! Nos comunicamos de Optirutas para verificar la dirección de entrega de tu pedido: *${client.address}*. ¿Nos confirmas si estás disponible para recibirlo?`
+    },
+    {
+      label: '🕒 Coordinar Horario',
+      text: `¡Hola *${client.name}*! Nos comunicamos para coordinar el horario de entrega de tu pedido. ¿En qué horario te queda mejor recibirnos?`
+    },
+    {
+      label: '👋 Saludo Breve',
+      text: `¡Hola *${client.name}*! ¿Cómo estás? Te escribimos de Optirutas en relación a tu pedido.`
+    }
+  ];
+
+  const handleOpenWhatsApp = (client: Client, customGreeting?: string) => {
+    setTargetWhatsAppClient(client);
+    setWhatsAppPhone(client.phone || '');
+    setSavePhoneToClient(true);
+    setWhatsAppMessage(
+      customGreeting || `¡Hola *${client.name}*! Te avisamos desde el equipo de logística que tu pedido ya está en camino a tu domicilio.`
+    );
+    setIsWhatsAppModalOpen(true);
+  };
+
+  const handleSendWhatsAppSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!targetWhatsAppClient) return;
+
+    const trimmedPhone = whatsAppPhone.trim();
+    if (!trimmedPhone) {
+      alert('Por favor ingresa un número de teléfono o celular válido.');
+      return;
+    }
+
+    const cleanPhone = formatWhatsAppPhone(trimmedPhone);
+    if (!cleanPhone || cleanPhone.length < 8) {
+      alert('El número ingresado no parece válido. Verifica el código de área y el número.');
+      return;
+    }
+
+    // Save phone to client in Firestore if it was missing or updated
+    if (savePhoneToClient && targetWhatsAppClient.phone !== trimmedPhone) {
+      setIsSavingPhone(true);
+      try {
+        await updateClient(targetWhatsAppClient.id, { phone: trimmedPhone });
+      } catch (err) {
+        console.error('Error saving client phone:', err);
+      } finally {
+        setIsSavingPhone(false);
+      }
+    }
+
+    const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(whatsAppMessage)}`;
+    window.open(url, '_blank');
+    setIsWhatsAppModalOpen(false);
+  };
 
   const daysOfWeek = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
@@ -647,6 +718,17 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
 
                       <div className="flex items-center gap-1.5 flex-shrink-0">
                         <button
+                          onClick={() => handleOpenWhatsApp(client)}
+                          className={`p-1.5 rounded-xl transition-all cursor-pointer ${
+                            client.phone 
+                              ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 shadow-xs border border-emerald-200/60 dark:border-emerald-800/60' 
+                              : 'text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
+                          }`}
+                          title={client.phone ? `Enviar WhatsApp directo a ${client.name} (${client.phone})` : `Enviar WhatsApp (ingresar o guardar número)`}
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                        </button>
+                        <button
                           onClick={() => handleQuickSendSingleClient(client)}
                           className="p-1.5 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-xl transition-all cursor-pointer"
                           title="Enviar a ruta de un día"
@@ -682,11 +764,27 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
                     </p>
 
                     <div className="flex flex-wrap gap-x-4 gap-y-2 pt-2 pl-7 text-xs font-semibold text-slate-600 dark:text-slate-300 border-t border-slate-200/60 dark:border-slate-800/80">
-                      {client.phone && (
-                        <span className="flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
-                          <Phone className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
-                          {client.phone}
-                        </span>
+                      {client.phone ? (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenWhatsApp(client)}
+                          className="inline-flex items-center gap-1.5 text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/80 px-2.5 py-1 rounded-xl border border-emerald-200 dark:border-emerald-800 font-bold transition-all cursor-pointer hover:scale-[1.02]"
+                          title="Click para enviar WhatsApp directo a este cliente"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                          <span>{client.phone}</span>
+                          <span className="text-[9px] font-black uppercase text-emerald-700 dark:text-emerald-300 bg-emerald-200/70 dark:bg-emerald-800/80 px-1 py-0.2 rounded">WhatsApp</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenWhatsApp(client)}
+                          className="inline-flex items-center gap-1.5 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 text-xs italic hover:underline cursor-pointer"
+                          title="Agregar número de WhatsApp para este cliente"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5" />
+                          <span>+ Agregar WhatsApp</span>
+                        </button>
                       )}
                       {client.email && (
                         <span className="flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
@@ -1229,6 +1327,131 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
                       <span>Guardar Cliente</span>
                     </>
                   )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Direct WhatsApp Messaging Modal */}
+      {isWhatsAppModalOpen && targetWhatsAppClient && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-slate-950/65 backdrop-blur-sm m3-scrim-enter">
+          <div className="glass rounded-3xl border shadow-2xl w-full max-w-lg overflow-hidden m3-dialog-enter">
+            {/* Header */}
+            <div className="p-5 border-b border-slate-200/50 dark:border-slate-800/50 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/25">
+                  <MessageCircle className="w-5 h-5 fill-white" />
+                </div>
+                <div>
+                  <h3 className="font-black text-base text-slate-900 dark:text-white leading-tight">
+                    Enviar WhatsApp a Cliente
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold truncate max-w-[280px]">
+                    {targetWhatsAppClient.name} • {targetWhatsAppClient.address}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsWhatsAppModalOpen(false)}
+                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSendWhatsAppSubmit} className="p-5 space-y-4">
+              {/* Phone Input with Auto-Save */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Phone className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>Número de WhatsApp / Celular</span>
+                  </span>
+                  <span className="text-[11px] font-normal text-slate-400">
+                    Con o sin código de área
+                  </span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="tel"
+                    required
+                    placeholder="Ej: +54 9 3757 12-3456 o 3757445566"
+                    value={whatsAppPhone}
+                    onChange={(e) => setWhatsAppPhone(e.target.value)}
+                    className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-2.5 text-sm font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                {targetWhatsAppClient.phone !== whatsAppPhone.trim() && (
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-400 cursor-pointer pt-1">
+                    <input
+                      type="checkbox"
+                      checked={savePhoneToClient}
+                      onChange={(e) => setSavePhoneToClient(e.target.checked)}
+                      className="rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    />
+                    <span>Guardar y actualizar este número en la ficha del cliente</span>
+                  </label>
+                )}
+              </div>
+
+              {/* Quick Template Selector */}
+              <div className="space-y-1.5 pt-1">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Plantillas Rápidas (Toca para cargar mensaje):</span>
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {getWhatsAppTemplates(targetWhatsAppClient).map((tpl, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setWhatsAppMessage(tpl.text)}
+                      className="text-xs font-bold px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-slate-700 dark:text-slate-300 hover:text-emerald-700 dark:hover:text-emerald-300 border border-slate-200 dark:border-slate-700 hover:border-emerald-300 dark:hover:border-emerald-700 transition-colors cursor-pointer"
+                    >
+                      {tpl.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Message Textarea */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                  <span>Mensaje a enviar:</span>
+                  <span className="text-[11px] font-mono text-slate-400">
+                    {whatsAppMessage.length} caracteres
+                  </span>
+                </label>
+                <textarea
+                  required
+                  rows={4}
+                  value={whatsAppMessage}
+                  onChange={(e) => setWhatsAppMessage(e.target.value)}
+                  placeholder="Escribe el mensaje para el cliente..."
+                  className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl p-3.5 text-xs sm:text-sm font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 resize-none"
+                />
+              </div>
+
+              {/* Footer Buttons */}
+              <div className="pt-3 border-t border-slate-200/50 dark:border-slate-800/50 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsWhatsAppModalOpen(false)}
+                  className="px-4 py-2.5 rounded-2xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingPhone || !whatsAppPhone.trim() || !whatsAppMessage.trim()}
+                  className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white px-5 py-2.5 rounded-2xl text-xs font-black shadow-lg shadow-emerald-500/25 m3-surface-interactive cursor-pointer disabled:opacity-50"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>{isSavingPhone ? 'Guardando...' : 'Abrir en WhatsApp'}</span>
                 </button>
               </div>
             </form>

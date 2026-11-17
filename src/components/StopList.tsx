@@ -4,7 +4,7 @@ import {
   CheckSquare, Square, RefreshCw, X, Archive, Clock, Timer,
   Wand2, Share2, Download, Crosshair, Search, Sparkles, Check, Layers, PlusCircle,
   Calendar, ChevronDown, UserPlus, ArrowLeft, Mail, Phone, Navigation, HardDrive,
-  Truck, GripVertical
+  Truck, GripVertical, MessageCircle
 } from 'lucide-react';
 import { precacheDayRoutes } from '../services/routing';
 import { addStop, updateStop, deleteStop, addHistory, addClient, batchUpdateStopOrders, type Stop, type Client, type Vehicle } from '../services/firestore';
@@ -17,7 +17,8 @@ import {
   resolveMapLinkCoords,
   getCurrentDayNameEs,
   smartSearchMatch,
-  formatDwellDuration
+  formatDwellDuration,
+  formatWhatsAppPhone
 } from '../utils/geo';
 import { calculateTripCostMetrics, getStoredCostSettings } from '../utils/costCalculator';
 
@@ -1658,6 +1659,10 @@ export const StopList: React.FC<StopListProps> = ({
 
               const isDraggingThis = draggedStopId === stop.id;
               const isTargetOver = dragOverStopId === stop.id;
+              const matchedClient = clients.find(c => 
+                c.name.toLowerCase() === stop.name.toLowerCase() || 
+                (Math.abs(c.latitude - stop.latitude) < 0.0001 && Math.abs(c.longitude - stop.longitude) < 0.0001)
+              );
 
               return (
                 <div 
@@ -1865,6 +1870,18 @@ export const StopList: React.FC<StopListProps> = ({
                           {activeNavStop?.id === stop.id ? 'En curso' : 'Navegar'}
                         </span>
                       </button>
+                    )}
+
+                    {matchedClient?.phone && (
+                      <a
+                        href={`https://wa.me/${formatWhatsAppPhone(matchedClient.phone)}?text=${encodeURIComponent(`¡Hola *${stop.name}*! Te avisamos desde Optirutas que tu pedido está en camino a ${stop.address}.`)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-1.5 text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-xl transition-all cursor-pointer border border-emerald-200/50 dark:border-emerald-800/50"
+                        title={`Enviar WhatsApp a ${stop.name} (${matchedClient.phone})`}
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                      </a>
                     )}
 
                     <button
