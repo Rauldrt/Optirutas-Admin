@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, MapPin, Truck, Users, History, Sun, Moon, X, Download } from 'lucide-react';
+import { LayoutDashboard, MapPin, Truck, Users, History, Sun, Moon, X, Download, Sparkles, ExternalLink } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { PWAInstallModal } from './PWAInstallModal';
 
@@ -85,6 +85,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Bottom Actions & Mode Switcher */}
       <div className="border-t border-slate-200/50 dark:border-slate-800/50 pt-4 space-y-2">
+        {/* Commercial Landing Page Link */}
+        <a
+          href="?mode=landing"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-full flex items-center justify-between px-4 py-2.5 rounded-2xl text-xs font-bold text-slate-700 dark:text-slate-200 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 hover:border-purple-500/40 transition-all cursor-pointer group"
+          title="Abrir la página web comercial y calculadora de ROI para prospectos"
+        >
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 group-hover:scale-110 transition-transform" />
+            <span>Web Comercial (Landing)</span>
+          </div>
+          <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-purple-500 transition-colors" />
+        </a>
+
         {/* PWA Install Button */}
         {isInstallable && (
           <button

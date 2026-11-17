@@ -27,6 +27,7 @@ import { DriverView } from './components/DriverView';
 import { signOutAdmin, subscribeToAuth } from './services/auth';
 import { SecuritySettingsModal } from './components/SecuritySettingsModal';
 import { CustomerTrackingView } from './components/CustomerTrackingView';
+import { LandingPage } from './components/LandingPage';
 
 function App() {
   const todayName = getCurrentDayNameEs();
@@ -51,6 +52,13 @@ function App() {
     if (typeof window === 'undefined') return null;
     const params = new URLSearchParams(window.location.search);
     return params.get('track') || (params.get('mode') === 'track' ? params.get('stopId') : null);
+  });
+
+  // Commercial Landing Page URL parameter detection (?mode=landing or ?landing=true)
+  const [showLanding, setShowLanding] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('mode') === 'landing' || params.get('landing') === 'true';
   });
 
   // User Authentication & Role Session State ('admin' vs 'driver')
@@ -337,6 +345,23 @@ function App() {
   };
 
   const daysOfWeek = ['Todos', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+
+  // Standalone Commercial Landing Page (?mode=landing or ?landing=true)
+  if (showLanding) {
+    return (
+      <LandingPage
+        onEnterApp={() => {
+          if (typeof window !== 'undefined') {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('mode');
+            url.searchParams.delete('landing');
+            window.history.replaceState({}, '', url.pathname);
+          }
+          setShowLanding(false);
+        }}
+      />
+    );
+  }
 
   // Standalone Customer Tracking Profile (No login required for recipient tracking link)
   if (trackingStopId) {
