@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { CheckCircle2, AlertCircle, Users, Timer, Truck, Route } from 'lucide-react';
 import type { Stop, Client, Vehicle } from '../services/firestore';
 import { calculateRouteDistanceKm } from '../utils/geo';
+import { CostMetricsCard } from './CostMetricsCard';
 
 interface StatsGridProps {
   stops: Stop[];
@@ -162,6 +163,13 @@ export const StatsGrid: React.FC<StatsGridProps> = ({ stops, clients, vehicles =
           );
         })}
       </div>
+
+      {/* Operational Logistics Cost & Financial Analysis Module */}
+      <CostMetricsCard 
+        stops={stops} 
+        vehicles={vehicles} 
+        selectedDay={selectedDay} 
+      />
 
       {/* Fleet Performance & Progress Breakdown */}
       {fleetPerformance.length > 0 && (

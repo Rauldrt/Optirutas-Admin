@@ -50,6 +50,7 @@ export interface Vehicle {
   capacity?: string;
   notes?: string;
   pin?: string;
+  fuelConsumptionL100km?: number;
   telemetry?: VehicleTelemetry;
   createdAt?: number;
 }
@@ -75,6 +76,12 @@ export interface RouteHistory {
   driverName?: string;
   duration?: string;
   avgDwellMinutes?: number;
+  totalDistanceKm?: number;
+  estimatedLiters?: number;
+  fuelCost?: number;
+  laborCost?: number;
+  totalCost?: number;
+  costPerStop?: number;
   vehicleId?: string;
   vehicleName?: string;
 }
@@ -317,6 +324,13 @@ export const subscribeToHistory = (callback: (history: RouteHistory[]) => void) 
         stopsSummary: data.stopsSummary || '',
         driverName: data.driverName || '',
         duration: data.duration || '',
+        avgDwellMinutes: data.avgDwellMinutes !== undefined ? Number(data.avgDwellMinutes) : undefined,
+        totalDistanceKm: data.totalDistanceKm !== undefined ? Number(data.totalDistanceKm) : undefined,
+        estimatedLiters: data.estimatedLiters !== undefined ? Number(data.estimatedLiters) : undefined,
+        fuelCost: data.fuelCost !== undefined ? Number(data.fuelCost) : undefined,
+        laborCost: data.laborCost !== undefined ? Number(data.laborCost) : undefined,
+        totalCost: data.totalCost !== undefined ? Number(data.totalCost) : undefined,
+        costPerStop: data.costPerStop !== undefined ? Number(data.costPerStop) : undefined,
         vehicleId: data.vehicleId || '',
         vehicleName: data.vehicleName || '',
       });
@@ -341,6 +355,14 @@ export const addHistory = async (historyItem: Omit<RouteHistory, 'id'> & { id?: 
       vehicleId: historyItem.vehicleId || '',
       vehicleName: historyItem.vehicleName || '',
     };
+    if (historyItem.avgDwellMinutes !== undefined) data.avgDwellMinutes = Number(historyItem.avgDwellMinutes);
+    if (historyItem.totalDistanceKm !== undefined) data.totalDistanceKm = Number(historyItem.totalDistanceKm);
+    if (historyItem.estimatedLiters !== undefined) data.estimatedLiters = Number(historyItem.estimatedLiters);
+    if (historyItem.fuelCost !== undefined) data.fuelCost = Number(historyItem.fuelCost);
+    if (historyItem.laborCost !== undefined) data.laborCost = Number(historyItem.laborCost);
+    if (historyItem.totalCost !== undefined) data.totalCost = Number(historyItem.totalCost);
+    if (historyItem.costPerStop !== undefined) data.costPerStop = Number(historyItem.costPerStop);
+
     await setDoc(doc(db, HISTORY_COLLECTION, id), data);
   } catch (error) {
     console.error("Error adding history item: ", error);
@@ -377,6 +399,7 @@ export const subscribeToVehicles = (callback: (vehicles: Vehicle[]) => void) => 
         capacity: data.capacity || '',
         notes: data.notes || '',
         pin: data.pin || '1234',
+        fuelConsumptionL100km: data.fuelConsumptionL100km !== undefined ? Number(data.fuelConsumptionL100km) : undefined,
         telemetry: data.telemetry ? {
           lat: Number(data.telemetry.lat) || 0,
           lng: Number(data.telemetry.lng) || 0,
@@ -412,6 +435,9 @@ export const addVehicle = async (vehicle: Omit<Vehicle, 'id'> & { id?: string })
       pin: vehicle.pin?.trim() || '1234',
       createdAt: vehicle.createdAt || Date.now(),
     };
+    if (vehicle.fuelConsumptionL100km !== undefined) {
+      data.fuelConsumptionL100km = Number(vehicle.fuelConsumptionL100km);
+    }
     await setDoc(doc(db, VEHICLES_COLLECTION, id), data);
   } catch (error) {
     console.error("Error adding vehicle: ", error);
@@ -434,6 +460,7 @@ export const updateVehicle = async (id: string, updates: Partial<Omit<Vehicle, '
     if (updates.capacity !== undefined) cleanUpdates.capacity = updates.capacity.trim();
     if (updates.notes !== undefined) cleanUpdates.notes = updates.notes.trim();
     if (updates.pin !== undefined) cleanUpdates.pin = updates.pin.trim() || '1234';
+    if (updates.fuelConsumptionL100km !== undefined) cleanUpdates.fuelConsumptionL100km = Number(updates.fuelConsumptionL100km);
 
     await updateDoc(docRef, cleanUpdates);
   } catch (error) {

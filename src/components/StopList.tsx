@@ -19,6 +19,7 @@ import {
   smartSearchMatch,
   formatDwellDuration
 } from '../utils/geo';
+import { calculateTripCostMetrics, getStoredCostSettings } from '../utils/costCalculator';
 
 interface StopListProps {
   stops: Stop[];
@@ -1078,6 +1079,9 @@ export const StopList: React.FC<StopListProps> = ({
         avgDwellMins ? `prom. ${avgDwellMins}m en cliente` : null
       ].filter(Boolean).join(' • ');
 
+      // Calculate cost metrics for the archived trip
+      const costMetrics = calculateTripCostMetrics(completedStops, getStoredCostSettings());
+
       await addHistory({
         dateMillis: Date.now(),
         day: selectedDay === 'Todos' ? 'Varios' : selectedDay,
@@ -1086,6 +1090,12 @@ export const StopList: React.FC<StopListProps> = ({
         driverName: archiveDriverName.trim() || 'Repartidor',
         duration: durationFinal || 'N/A',
         avgDwellMinutes: avgDwellMins,
+        totalDistanceKm: costMetrics.totalDistanceKm > 0 ? costMetrics.totalDistanceKm : undefined,
+        estimatedLiters: costMetrics.estimatedFuelLiters > 0 ? costMetrics.estimatedFuelLiters : undefined,
+        fuelCost: costMetrics.estimatedFuelCost > 0 ? costMetrics.estimatedFuelCost : undefined,
+        laborCost: costMetrics.estimatedLaborCost > 0 ? costMetrics.estimatedLaborCost : undefined,
+        totalCost: costMetrics.totalCost > 0 ? costMetrics.totalCost : undefined,
+        costPerStop: costMetrics.costPerStop > 0 ? costMetrics.costPerStop : undefined,
       });
 
       for (const stop of completedStops) {

@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { 
   Calendar, User, Clock, Route, Trash2, RotateCcw, 
-  Download, Search, X, Truck, Printer, Archive, CheckCircle2, Timer 
+  Download, Search, X, Truck, Printer, Archive, CheckCircle2, Timer,
+  Fuel, DollarSign
 } from 'lucide-react';
 import { 
   addHistory, 
@@ -14,6 +15,7 @@ import {
   type Vehicle 
 } from '../services/firestore';
 import { getCurrentDayNameEs, smartSearchMatch, computeOptimizedStopOrder } from '../utils/geo';
+import { calculateTripCostMetrics, formatCurrency, getStoredCostSettings } from '../utils/costCalculator';
 
 interface TripHistoryProps {
   history: RouteHistory[];
@@ -165,7 +167,21 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
 
   const handleExportHistoryCSV = () => {
     if (filteredHistory.length === 0) return;
-    const headers = ['Fecha', 'Dia', 'Móvil', 'Chofer', 'Duracion', 'Cantidad Entregas', 'Resumen de Paradas'];
+    const headers = [
+      'Fecha', 
+      'Dia', 
+      'Móvil', 
+      'Chofer', 
+      'Duracion', 
+      'Cantidad Entregas', 
+      'Km Recorridos', 
+      'Litros Combustible', 
+      'Gasto Combustible ($)', 
+      'Costo Mano Obra ($)', 
+      'Costo Total ($)', 
+      'Costo por Entrega ($)',
+      'Resumen de Paradas'
+    ];
     const rows = filteredHistory.map(item => [
       `"${formatDate(item.dateMillis)}"`,
       item.day,
@@ -173,6 +189,12 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
       `"${(item.driverName || 'N/A').replace(/"/g, '""')}"`,
       `"${(item.duration || 'N/A').replace(/"/g, '""')}"`,
       item.stopsCount,
+      item.totalDistanceKm !== undefined ? item.totalDistanceKm.toFixed(1) : '',
+      item.estimatedLiters !== undefined ? item.estimatedLiters.toFixed(2) : '',
+      item.fuelCost !== undefined ? item.fuelCost : '',
+      item.laborCost !== undefined ? item.laborCost : '',
+      item.totalCost !== undefined ? item.totalCost : '',
+      item.costPerStop !== undefined ? item.costPerStop : '',
       `"${item.stopsSummary.replace(/"/g, '""')}"`
     ]);
 
@@ -222,16 +244,30 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
           }, 0) / completedWithDwell.length)
         : undefined;
 
+      // Compute costs for archived trip
+      const targetStopsList = completedStops.length > 0 ? completedStops : dayStops;
+      const costMetrics = calculateTripCostMetrics(
+        targetStopsList,
+        getStoredCostSettings(),
+        targetVehicle
+      );
+
       await addHistory({
         dateMillis: Date.now(),
         day: archiveDay,
-        stopsCount: completedStops.length > 0 ? completedStops.length : dayStops.length,
+        stopsCount: targetStopsList.length,
         stopsSummary: summaryText,
         driverName: targetVehicle ? targetVehicle.driverName : 'Equipo de Reparto',
         vehicleId: targetVehicle ? targetVehicle.id : '',
         vehicleName: targetVehicle ? targetVehicle.name : 'Flota Completa',
         duration: avgDwellMins ? `Jornada Finalizada (prom. ${avgDwellMins}m en cliente)` : 'Jornada Finalizada',
         avgDwellMinutes: avgDwellMins,
+        totalDistanceKm: costMetrics.totalDistanceKm,
+        estimatedLiters: costMetrics.estimatedFuelLiters,
+        fuelCost: costMetrics.estimatedFuelCost,
+        laborCost: costMetrics.estimatedLaborCost,
+        totalCost: costMetrics.totalCost,
+        costPerStop: costMetrics.costPerStop,
       });
 
       // Optionally reset completed stops to pending for next week
@@ -432,6 +468,24 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
                         <Route className="w-3.5 h-3.5 text-purple-500" />
                         Entregas: {item.stopsCount}
                       </span>
+                      {item.totalDistanceKm !== undefined && item.totalDistanceKm > 0 && (
+                        <span className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300 font-bold">
+                          <Route className="w-3.5 h-3.5 text-purple-500" />
+                          {item.totalDistanceKm.toFixed(1)} km
+                        </span>
+                      )}
+                      {item.estimatedLiters !== undefined && item.estimatedLiters > 0 && (
+                        <span className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 font-semibold">
+                          <Fuel className="w-3.5 h-3.5" />
+                          ~{item.estimatedLiters.toFixed(1)} L
+                        </span>
+                      )}
+                      {item.totalCost !== undefined && item.totalCost > 0 && (
+                        <span className="flex items-center gap-1.5 text-indigo-700 dark:text-indigo-300 font-extrabold bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-lg border border-indigo-200/60 dark:border-indigo-800/60">
+                          <DollarSign className="w-3.5 h-3.5" />
+                          Gasto Total: {formatCurrency(item.totalCost)} {item.costPerStop ? `(${formatCurrency(item.costPerStop)}/parada)` : ''}
+                        </span>
+                      )}
                     </div>
                   </div>
 

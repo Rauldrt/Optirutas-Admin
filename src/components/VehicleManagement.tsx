@@ -3,7 +3,7 @@ import {
   Truck, Plus, Search, Edit2, Trash2, Phone, User, 
   MapPin, CheckCircle2, Wrench, X, 
   Calendar, MessageCircle, ShieldCheck,
-  Share2, KeyRound, Radio, Copy, Check
+  Share2, KeyRound, Radio, Copy, Check, Fuel
 } from 'lucide-react';
 import { 
   addVehicle, 
@@ -53,6 +53,7 @@ export const VehicleManagement: React.FC<VehicleManagementProps> = ({
   const [color, setColor] = useState('#6366f1');
   const [status, setStatus] = useState<Vehicle['status']>('available');
   const [capacity, setCapacity] = useState('');
+  const [fuelConsumption, setFuelConsumption] = useState('');
   const [notes, setNotes] = useState('');
   const [pin, setPin] = useState('1234');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -114,6 +115,7 @@ export const VehicleManagement: React.FC<VehicleManagementProps> = ({
     setColor(PRESET_COLORS[vehicles.length % PRESET_COLORS.length].hex);
     setStatus('available');
     setCapacity('');
+    setFuelConsumption('');
     setNotes('');
     setPin('1234');
     setIsModalOpen(true);
@@ -129,6 +131,7 @@ export const VehicleManagement: React.FC<VehicleManagementProps> = ({
     setColor(vehicle.color || '#6366f1');
     setStatus(vehicle.status);
     setCapacity(vehicle.capacity || '');
+    setFuelConsumption(vehicle.fuelConsumptionL100km ? vehicle.fuelConsumptionL100km.toString() : '');
     setNotes(vehicle.notes || '');
     setPin(vehicle.pin || '1234');
     setIsModalOpen(true);
@@ -143,6 +146,7 @@ export const VehicleManagement: React.FC<VehicleManagementProps> = ({
 
     setIsSaving(true);
     try {
+      const parsedConsumption = fuelConsumption ? parseFloat(fuelConsumption) : undefined;
       const vehicleData = {
         name: name.trim(),
         driverName: driverName.trim(),
@@ -152,6 +156,7 @@ export const VehicleManagement: React.FC<VehicleManagementProps> = ({
         color,
         status,
         capacity: capacity.trim(),
+        fuelConsumptionL100km: parsedConsumption && parsedConsumption > 0 ? parsedConsumption : undefined,
         notes: notes.trim(),
         pin: pin.trim() || '1234',
       };
@@ -476,6 +481,23 @@ export const VehicleManagement: React.FC<VehicleManagementProps> = ({
                       )}
                     </div>
 
+                    {/* Fuel Consumption & Capacity Badges */}
+                    <div className="flex items-center justify-between text-xs px-1 text-slate-500 dark:text-slate-400">
+                      {vehicle.fuelConsumptionL100km ? (
+                        <span className="flex items-center gap-1.5 font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-lg border border-amber-200/50 dark:border-amber-800/50 text-[11px]">
+                          <Fuel className="w-3.5 h-3.5" />
+                          <span>{vehicle.fuelConsumptionL100km} L / 100 km</span>
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-slate-400 italic">Consumo flotal</span>
+                      )}
+                      {vehicle.capacity && (
+                        <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                          {vehicle.capacity}
+                        </span>
+                      )}
+                    </div>
+
                     {/* Today's Route Activity for this Mobile */}
                     <div className="flex items-center justify-between text-xs pt-1 px-1">
                       <span className="text-slate-500 dark:text-slate-400 font-semibold flex items-center gap-1.5">
@@ -742,11 +764,11 @@ export const VehicleManagement: React.FC<VehicleManagementProps> = ({
                 </div>
               </div>
 
-              {/* Capacidad y Notas */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+              {/* Capacidad, Consumo y Notas */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-1">
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
-                    <span>PIN de Acceso Chofer</span>
+                    <span>PIN Acceso</span>
                     <span className="text-[10px] text-slate-400 font-mono">4 dígitos</span>
                   </label>
                   <input
@@ -758,6 +780,22 @@ export const VehicleManagement: React.FC<VehicleManagementProps> = ({
                     value={pin}
                     onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, ''))}
                     className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-3.5 py-2 text-sm font-mono font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Consumo (L/100km)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="1"
+                    max="60"
+                    placeholder="ej: 10.5"
+                    value={fuelConsumption}
+                    onChange={(e) => setFuelConsumption(e.target.value)}
+                    className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-3.5 py-2 text-sm font-semibold text-slate-900 dark:text-white focus:ring-2 focus:ring-purple-500"
                   />
                 </div>
 
@@ -776,7 +814,7 @@ export const VehicleManagement: React.FC<VehicleManagementProps> = ({
 
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Notas u Observaciones
+                    Observaciones
                   </label>
                   <input
                     type="text"
