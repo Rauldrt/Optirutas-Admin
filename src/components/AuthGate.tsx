@@ -497,8 +497,8 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
                     <span className="text-xs font-black text-slate-200 flex items-center gap-1.5">
                       <ShieldCheck className="w-4 h-4 text-indigo-400" />
                       <span>
-                        {adminSubMode === 'login' && 'Autenticación Segura de Administrador'}
-                        {adminSubMode === 'signup' && 'Registrar Nuevo Administrador'}
+                        {adminSubMode === 'login' && 'Ingreso de Administrador / Empresa'}
+                        {adminSubMode === 'signup' && 'Registrar Nueva Empresa (Tenant)'}
                         {adminSubMode === 'forgot' && 'Recuperar Contraseña de Administrador'}
                       </span>
                     </span>
@@ -668,7 +668,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
                       </>
                     ) : adminSubMode === 'signup' ? (
                       <>
-                        <span>Crear Cuenta y Entrar</span>
+                        <span>Crear Cuenta de Empresa y Entrar</span>
                         <UserPlus className="w-4 h-4" />
                       </>
                     ) : (
@@ -692,7 +692,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
                           }}
                           className="hover:text-indigo-300 transition-colors font-semibold cursor-pointer"
                         >
-                          ¿Primer acceso o nuevo administrador? <span className="text-indigo-400 underline font-black">Crear cuenta</span>
+                          ¿Nuevo cliente o empresa? <span className="text-indigo-400 underline font-black">Registrar mi Empresa (Prueba Gratis)</span>
                         </button>
                         <button
                           type="button"
@@ -718,7 +718,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ vehicles, onLoginSuccess }) 
                         }}
                         className="hover:text-indigo-300 transition-colors font-semibold cursor-pointer"
                       >
-                        ¿Ya tienes cuenta de Administrador? <span className="text-indigo-400 underline font-black">Iniciar Sesión</span>
+                        ¿Ya tienes cuenta de Empresa? <span className="text-indigo-400 underline font-black">Iniciar Sesión</span>
                       </button>
                     )}
                   </div>
