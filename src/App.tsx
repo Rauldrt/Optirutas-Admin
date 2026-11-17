@@ -373,6 +373,7 @@ function App() {
       <DriverView 
         vehicle={driverVehicle} 
         stops={stops} 
+        clients={clients}
         onLogout={handleLogout} 
       />
     );

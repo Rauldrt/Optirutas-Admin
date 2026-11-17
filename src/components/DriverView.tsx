@@ -5,10 +5,11 @@ import {
   updateVehicle, 
   addHistory,
   type Vehicle, 
-  type Stop 
+  type Stop,
+  type Client 
 } from '../services/firestore';
 import { useGeolocation } from '../hooks/useGeolocation';
-import { getCurrentDayNameEs, calculateDistanceKm } from '../utils/geo';
+import { getCurrentDayNameEs, calculateDistanceKm, formatWhatsAppPhone } from '../utils/geo';
 import { MapView } from './MapContainer';
 import { 
   Truck, 
@@ -28,10 +29,11 @@ import { PWAInstallModal } from './PWAInstallModal';
 interface DriverViewProps {
   vehicle: Vehicle;
   stops: Stop[];
+  clients?: Client[];
   onLogout: () => void;
 }
 
-export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout }) => {
+export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, clients = [], onLogout }) => {
   const todayName = getCurrentDayNameEs();
   const [isOnDuty, setIsOnDuty] = useState<boolean>(true);
   const [activeNavStop, setActiveNavStop] = useState<Stop | null>(null);
@@ -99,6 +101,15 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
     if (activeNavStop && !activeNavStop.completed) return activeNavStop;
     return driverStops.find(s => !s.completed) || null;
   }, [activeNavStop, driverStops]);
+
+  // Match current stop with client directory to get contact details
+  const matchedCurrentClient = useMemo(() => {
+    if (!currentStop) return null;
+    return clients.find(c => 
+      c.name.toLowerCase() === currentStop.name.toLowerCase() ||
+      (Math.abs(c.latitude - currentStop.latitude) < 0.0001 && Math.abs(c.longitude - currentStop.longitude) < 0.0001)
+    );
+  }, [currentStop, clients]);
 
   // Calculate distance to current stop
   const distanceToCurrentStopKm = useMemo(() => {
@@ -312,7 +323,7 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
                   <span>Próxima Entrega • #{currentStop.orderIndex}</span>
                 </span>
                 
-                {/* Customer Name + Neighborhood/Address inline */}
+                {/* Customer Name + Neighborhood/Address inline + Direct WhatsApp */}
                 <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 mt-1.5">
                   <h2 className="text-xl sm:text-2xl font-black text-white leading-tight">
                     {currentStop.name}
@@ -322,6 +333,18 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
                       <MapPin className="w-4 h-4 text-purple-400 flex-shrink-0" />
                       <span>{currentStop.address}</span>
                     </span>
+                  )}
+                  {matchedCurrentClient?.phone && (
+                    <a
+                      href={`https://wa.me/${formatWhatsAppPhone(matchedCurrentClient.phone)}?text=${encodeURIComponent(`¡Hola *${currentStop.name}*! Te avisamos desde el móvil de entregas que estamos en camino a tu domicilio.`)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-600/25 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-500/40 text-xs font-black transition-all no-underline cursor-pointer"
+                      title={`Enviar WhatsApp a ${currentStop.name}`}
+                    >
+                      <MessageCircle className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>WhatsApp</span>
+                    </a>
                   )}
                 </div>
               </div>
@@ -484,7 +507,7 @@ export const DriverView: React.FC<DriverViewProps> = ({ vehicle, stops, onLogout
         <div className="h-[480px] sm:h-[580px] md:h-[620px] rounded-3xl overflow-hidden border border-slate-800 shadow-xl relative">
           <MapView 
             stops={driverStops} 
-            clients={[]} 
+            clients={clients} 
             vehicles={[vehicle]}
             activeTab="stops"
             selectedDayLabel={todayName}

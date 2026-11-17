@@ -1,12 +1,12 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, Circle, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
-import { updateStop, addStop, type Stop, type Client, type Vehicle } from '../services/firestore';
+import { updateStop, addStop, updateClient, type Stop, type Client, type Vehicle } from '../services/firestore';
 import { calculateRouteDistanceKm, calculateDistanceKm, getCurrentDayNameEs, formatDwellDuration, formatWhatsAppPhone } from '../utils/geo';
 import { 
   Crosshair, Route as RouteIcon, X, MousePointerClick, Send, BoxSelect,
   Navigation, Locate, LocateFixed, Volume2, VolumeX, CheckCircle2, AlertCircle,
-  Maximize2, Minimize2, BellRing, Users, Timer, Clock
+  Maximize2, Minimize2, BellRing, Users, Timer, Clock, MessageCircle
 } from 'lucide-react';
 import { useGeolocation, speakInstruction } from '../hooks/useGeolocation';
 import { getStreetRoute, type RouteResult } from '../services/routing';
@@ -652,6 +652,24 @@ export const MapView: React.FC<MapViewProps> = ({
       completedAt: nextCompleted ? now : (null as any),
       ...(nextCompleted && arrivedAt ? { dwellTimeMinutes: dwellMinutes, dwellTimeSeconds: dwellSeconds } : {})
     });
+  };
+
+  const handlePromptWhatsAppForStop = (stop: Stop, clientMatch?: Client) => {
+    const raw = window.prompt(`Ingresa el número de WhatsApp para ${stop.name}:`, clientMatch?.phone || '');
+    if (!raw) return;
+    const clean = formatWhatsAppPhone(raw);
+    if (!clean || clean.length < 8) {
+      alert('Número de teléfono no válido.');
+      return;
+    }
+    // If client found in directory, save phone to client
+    if (clientMatch) {
+      updateClient(clientMatch.id, { phone: raw.trim() }).catch(console.error);
+    }
+    const defaultText = stop.completed
+      ? `¡Hola *${stop.name}*! Te confirmamos que tu entrega fue realizada con éxito en ${stop.address}.`
+      : `¡Hola *${stop.name}*! Te avisamos desde Optirutas que tu pedido está en camino a tu domicilio.`;
+    window.open(`https://wa.me/${clean}?text=${encodeURIComponent(defaultText)}`, '_blank');
   };
 
   return (
@@ -1390,6 +1408,10 @@ export const MapView: React.FC<MapViewProps> = ({
         {(activeTab !== 'clients' || showAllClientsOverlay) && sortedStops.map((stop) => {
           const isStopActiveNav = activeNavStop?.id === stop.id;
           const assignedVehicle = stop.vehicleId ? vehicles.find(v => v.id === stop.vehicleId) : null;
+          const matchedClient = clients.find(c => 
+            c.name.toLowerCase() === stop.name.toLowerCase() || 
+            (Math.abs(c.latitude - stop.latitude) < 0.0001 && Math.abs(c.longitude - stop.longitude) < 0.0001)
+          );
           let markerIcon = stop.completed 
             ? createCompletedStopIcon() 
             : isStopActiveNav 
@@ -1430,6 +1452,42 @@ export const MapView: React.FC<MapViewProps> = ({
 
                     <h3 className="font-extrabold text-sm mb-1">{stop.name}</h3>
                     <p className="text-xs mb-1.5"><b>Dirección:</b> {stop.address}</p>
+
+                    {/* Client Phone & Direct WhatsApp Action */}
+                    {matchedClient?.phone ? (
+                      <div className="flex items-center justify-between gap-1.5 mb-2 px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-800/60 text-xs">
+                        <span className="font-bold text-slate-700 dark:text-slate-300 truncate text-[11px]">
+                          <b>Tel:</b> {matchedClient.phone}
+                        </span>
+                        <a
+                          href={`https://wa.me/${formatWhatsAppPhone(matchedClient.phone)}?text=${encodeURIComponent(
+                            stop.completed
+                              ? `¡Hola *${stop.name}*! Te confirmamos que tu pedido fue entregado con éxito en tu domicilio.`
+                              : `¡Hola *${stop.name}*! Te avisamos desde Optirutas que tu pedido está en camino a tu domicilio.`
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[11px] px-2.5 py-1 rounded-lg shadow-sm transition-all no-underline cursor-pointer flex-shrink-0"
+                          title={`Enviar WhatsApp directo a ${stop.name} (${matchedClient.phone})`}
+                        >
+                          <MessageCircle className="w-3.5 h-3.5" />
+                          <span>WhatsApp</span>
+                        </a>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between gap-1.5 mb-2 px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-900/60 border border-slate-200/50 dark:border-slate-800 text-[11px]">
+                        <span className="text-slate-500 italic text-[10px]">Sin teléfono en base</span>
+                        <button
+                          type="button"
+                          onClick={() => handlePromptWhatsAppForStop(stop, matchedClient)}
+                          className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 font-bold hover:underline cursor-pointer flex-shrink-0"
+                          title="Ingresar teléfono y enviar WhatsApp a este cliente"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5" />
+                          <span>+ WhatsApp</span>
+                        </button>
+                      </div>
+                    )}
 
                     {/* Dwell & Timing Badges */}
                     {stop.completed && stop.completedAt && (
