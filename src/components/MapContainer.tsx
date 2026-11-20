@@ -252,8 +252,34 @@ export const MapView: React.FC<MapViewProps> = ({
   onEndNavigation,
   onCompleteAndNextStop
 }) => {
-  const [mapCenter, setMapCenter] = useState<[number, number]>([-34.6037, -58.3816]); // Buenos Aires default
-  const [zoom, setZoom] = useState<number>(13);
+  const [mapCenter, setMapCenter] = useState<[number, number]>(() => {
+    // 1. Try saved last coords from localStorage
+    try {
+      const saved = localStorage.getItem('optirutas_last_coords');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length === 2 && !isNaN(parsed[0]) && !isNaN(parsed[1])) {
+          return [parsed[0], parsed[1]];
+        }
+      }
+    } catch {}
+
+    // 2. Try stops if any exist with valid coordinates
+    const validStop = stops.find(s => s.latitude !== 0 && s.longitude !== 0);
+    if (validStop) {
+      return [validStop.latitude, validStop.longitude];
+    }
+
+    // 3. Try clients if any exist in the database (e.g. business home region)
+    const validClient = clients.find(c => c.latitude !== 0 && c.longitude !== 0);
+    if (validClient) {
+      return [validClient.latitude, validClient.longitude];
+    }
+
+    // 4. Default fallback
+    return [-34.6037, -58.3816];
+  });
+  const [zoom, setZoom] = useState<number>(14);
   // Quick-select mode on Clients map: clicking a marker immediately toggles selection
   const [quickMapSelectMode, setQuickMapSelectMode] = useState<boolean>(true);
 
@@ -456,6 +482,30 @@ export const MapView: React.FC<MapViewProps> = ({
     }
   }, [activeNavStop, userCoords]);
 
+  // Auto-detect device geolocation on mount to position map where user actually is
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const coords: [number, number] = [pos.coords.latitude, pos.coords.longitude];
+          try {
+            localStorage.setItem('optirutas_last_coords', JSON.stringify(coords));
+          } catch {}
+
+          const hasValidStops = stops.some(s => s.latitude !== 0 && s.longitude !== 0);
+          if (!hasValidStops && !selectedCoordinates && !activeNavStop) {
+            setMapCenter(coords);
+            setZoom(15);
+          }
+        },
+        (err) => {
+          console.log('GPS init notice:', err.message);
+        },
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+      );
+    }
+  }, []);
+
   // Auto-center map based on items or selection when not navigating
   useEffect(() => {
     if (activeNavStop) return;
@@ -476,9 +526,42 @@ export const MapView: React.FC<MapViewProps> = ({
         const sumLat = validCoords.reduce((acc, curr) => acc + curr.latitude, 0);
         const sumLng = validCoords.reduce((acc, curr) => acc + curr.longitude, 0);
         setMapCenter([sumLat / validCoords.length, sumLng / validCoords.length]);
+        return;
       }
     }
-  }, [stops, clients, activeTab, selectedCoordinates, activeNavStop]);
+
+    // Fallbacks when active day or list has 0 items:
+    // 1. Center on real-time GPS userCoords if available
+    if (userCoords) {
+      try {
+        localStorage.setItem('optirutas_last_coords', JSON.stringify(userCoords));
+      } catch {}
+      setMapCenter(userCoords);
+      setZoom(15);
+      return;
+    }
+
+    // 2. Center on clients if any exist in the database (tenant's home region)
+    const validClients = clients.filter(c => c.latitude !== 0 && c.longitude !== 0);
+    if (validClients.length > 0) {
+      const sumLat = validClients.reduce((acc, curr) => acc + curr.latitude, 0);
+      const sumLng = validClients.reduce((acc, curr) => acc + curr.longitude, 0);
+      setMapCenter([sumLat / validClients.length, sumLng / validClients.length]);
+      return;
+    }
+
+    // 3. Fallback to saved last coords
+    try {
+      const saved = localStorage.getItem('optirutas_last_coords');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length === 2 && !isNaN(parsed[0]) && !isNaN(parsed[1])) {
+          setMapCenter([parsed[0], parsed[1]]);
+          setZoom(15);
+        }
+      }
+    } catch {}
+  }, [stops, clients, activeTab, selectedCoordinates, activeNavStop, userCoords]);
 
   // Manual GPS toggle handler
   const handleToggleGps = () => {

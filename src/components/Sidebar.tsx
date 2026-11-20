@@ -33,8 +33,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside className={`fixed lg:sticky top-0 lg:top-4 left-0 bottom-0 z-50 w-64 h-screen lg:h-[calc(100vh-2rem)] m-0 lg:m-4 flex flex-col justify-between glass border-r lg:border border-slate-200/50 dark:border-slate-800/50 rounded-none lg:rounded-3xl p-6 shadow-2xl lg:shadow-xl transition-transform duration-300 lg:translate-x-0 ${
-      sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+    <aside className={`fixed top-0 lg:top-4 left-0 lg:left-4 bottom-0 lg:bottom-4 z-50 w-64 h-screen lg:h-[calc(100vh-2rem)] flex flex-col justify-between glass border-r lg:border border-slate-200/50 dark:border-slate-800/50 rounded-none lg:rounded-3xl p-6 shadow-2xl lg:shadow-xl transition-transform duration-300 overflow-y-auto ${
+      sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
     }`}>
       <div>
         {/* Logo Section */}

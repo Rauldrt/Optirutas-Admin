@@ -452,7 +452,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950 transition-colors duration-300 overflow-x-hidden">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
       {/* Mobile Drawer Backdrop */}
       {sidebarOpen && (
         <div 
@@ -472,8 +472,9 @@ function App() {
         companyName={session?.companyName}
       />
 
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col p-4 md:p-6 lg:pl-2 space-y-6 w-full max-w-full lg:max-w-[calc(100vw-18rem)]">
+      {/* Main Content Area with Fixed Sidebar Offset */}
+      <div className="lg:pl-[18rem] min-h-screen flex flex-col transition-all duration-300">
+        <main className="flex-1 flex flex-col p-4 md:p-6 space-y-6 w-full max-w-full">
         {/* Top Header */}
         <header className="flex items-center justify-between gap-2 sm:gap-4 w-full">
           <div className="flex items-center min-w-0 flex-1 mr-1 sm:mr-3">
@@ -876,6 +877,7 @@ function App() {
         />
       </main>
     </div>
+  </div>
   );
 }
 
