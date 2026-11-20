@@ -21,7 +21,7 @@ interface ClientDirectoryProps {
   clients: Client[];
   stops?: Stop[];
   vehicles?: Vehicle[];
-  onSelectClient: (coords: [number, number]) => void;
+  onSelectClient: (coords: [number, number], clientId?: string) => void;
   selectedClientIds?: string[];
   onSetSelectedClientIds?: (ids: string[]) => void;
   openBatchModalSignal?: number;
@@ -46,6 +46,8 @@ interface ClientDirectoryProps {
     };
   } | null;
   onClearPickedCoords?: () => void;
+  focusedClientId?: string | null;
+  onFocusClient?: (clientId: string) => void;
 }
 
 export const ClientDirectory: React.FC<ClientDirectoryProps> = ({ 
@@ -59,7 +61,9 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
   onSwitchToStopsDay,
   onRequestMapPick,
   pickedCoordsForClient,
-  onClearPickedCoords
+  onClearPickedCoords,
+  focusedClientId = null,
+  onFocusClient
 }) => {
   const todayName = getCurrentDayNameEs();
   const [searchQuery, setSearchQuery] = useState('');
@@ -418,6 +422,33 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
     );
   }, [clients, searchQuery]);
 
+  // Bidirectional sync: when focusedClientId changes (e.g. clicked on map), scroll list to client card
+  useEffect(() => {
+    if (!focusedClientId) return;
+    
+    // If the client is currently filtered out by the active search, reset search query so the item is rendered
+    const isVisible = filteredClients.some(c => c.id === focusedClientId);
+    if (!isVisible && searchQuery) {
+      setSearchQuery('');
+    }
+
+    const timer = setTimeout(() => {
+      const cardEl = document.getElementById(`client-card-${focusedClientId}`);
+      if (cardEl) {
+        cardEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }, 120);
+
+    return () => clearTimeout(timer);
+  }, [focusedClientId, filteredClients, searchQuery]);
+
+  const handleClientCardClick = (client: Client) => {
+    if (onFocusClient) {
+      onFocusClient(client.id);
+    }
+    onSelectClient([client.latitude, client.longitude], client.id);
+  };
+
   const toggleSelectClient = (id: string) => {
     setSelectedClientIds(prev => 
       prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
@@ -679,24 +710,35 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
             <p className="text-xs mt-1 text-slate-500 dark:text-slate-400">Intenta cambiar los términos de búsqueda o registra un nuevo cliente.</p>
           </div>
         ) : (
-          <div className="divide-y divide-slate-200/50 dark:divide-slate-800/50 max-h-[550px] overflow-y-auto">
+          <div 
+            id="clients-list-container"
+            className="divide-y divide-slate-200/50 dark:divide-slate-800/50 max-h-[550px] overflow-y-auto scroll-smooth p-1"
+          >
             {filteredClients.map((client) => {
               const selIdx = selectedClientIds.indexOf(client.id);
               const isSelected = selIdx !== -1;
+              const isFocused = focusedClientId === client.id;
               return (
                 <div 
+                  id={`client-card-${client.id}`}
                   key={client.id} 
-                  className={`p-4 sm:p-5 flex flex-col justify-between gap-3 transition-colors ${
-                    isSelected 
-                      ? 'bg-emerald-500/15 dark:bg-emerald-950/40' 
-                      : 'bg-white/40 dark:bg-slate-900/60 hover:bg-slate-50/80 dark:hover:bg-slate-800/60'
+                  onClick={() => handleClientCardClick(client)}
+                  className={`p-4 sm:p-5 flex flex-col justify-between gap-3 transition-all duration-300 cursor-pointer rounded-2xl mx-1 my-1 border ${
+                    isFocused
+                      ? 'ring-2 ring-purple-600 dark:ring-purple-400 bg-purple-500/15 dark:bg-purple-950/50 border-purple-400/80 dark:border-purple-600/80 shadow-lg shadow-purple-500/15'
+                      : isSelected 
+                        ? 'bg-emerald-500/15 dark:bg-emerald-950/40 border-emerald-300/60 dark:border-emerald-800/60' 
+                        : 'bg-white/40 dark:bg-slate-900/60 hover:bg-slate-50/80 dark:hover:bg-slate-800/60 border-transparent hover:border-slate-200 dark:hover:border-slate-800'
                   }`}
                 >
                   <div className="space-y-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2.5 min-w-0">
                         <button
-                          onClick={() => toggleSelectClient(client.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleSelectClient(client.id);
+                          }}
                           className="text-slate-400 hover:text-emerald-600 dark:text-slate-300 dark:hover:text-emerald-400 transition-colors cursor-pointer flex-shrink-0"
                           title="Seleccionar para enviar en lote a una ruta"
                         >
@@ -708,6 +750,11 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
                         </button>
                         <h3 className="font-extrabold text-sm md:text-base text-slate-900 dark:text-white leading-tight flex items-center gap-2 truncate">
                           <span className="truncate">{client.name}</span>
+                          {isFocused && (
+                            <span className="bg-purple-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full flex-shrink-0 animate-pulse">
+                              Enfocado
+                            </span>
+                          )}
                           {isSelected && (
                             <span className="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full flex-shrink-0">
                               #{selIdx + 1}
@@ -716,7 +763,7 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
                         </h3>
                       </div>
 
-                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                         <button
                           onClick={() => handleOpenWhatsApp(client)}
                           className={`p-1.5 rounded-xl transition-all cursor-pointer ${
@@ -736,8 +783,12 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
                           <Send className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => onSelectClient([client.latitude, client.longitude])}
-                          className="p-1.5 text-slate-500 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-all cursor-pointer"
+                          onClick={() => handleClientCardClick(client)}
+                          className={`p-1.5 rounded-xl transition-all cursor-pointer ${
+                            isFocused 
+                              ? 'text-purple-600 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/60'
+                              : 'text-slate-500 dark:text-slate-300 hover:text-purple-600 dark:hover:text-purple-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700'
+                          }`}
                           title="Enfocar en mapa"
                         >
                           <MapPin className="w-4 h-4" />
@@ -763,7 +814,10 @@ export const ClientDirectory: React.FC<ClientDirectoryProps> = ({
                       {client.address}
                     </p>
 
-                    <div className="flex flex-wrap gap-x-4 gap-y-2 pt-2 pl-7 text-xs font-semibold text-slate-600 dark:text-slate-300 border-t border-slate-200/60 dark:border-slate-800/80">
+                    <div 
+                      className="flex flex-wrap gap-x-4 gap-y-2 pt-2 pl-7 text-xs font-semibold text-slate-600 dark:text-slate-300 border-t border-slate-200/60 dark:border-slate-800/80"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       {client.phone ? (
                         <button
                           type="button"

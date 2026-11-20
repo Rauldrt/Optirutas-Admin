@@ -11,12 +11,16 @@ import {
 import { useGeolocation, speakInstruction } from '../hooks/useGeolocation';
 import { getStreetRoute, type RouteResult } from '../services/routing';
 
-// Component to handle map center changes dynamically
-const ChangeMapView: React.FC<{ center: [number, number]; zoom?: number }> = ({ center, zoom }) => {
+// Component to handle map center changes dynamically with smooth flyTo animation
+const ChangeMapView: React.FC<{ center: [number, number]; zoom?: number; fly?: boolean }> = ({ center, zoom, fly = true }) => {
   const map = useMap();
   useEffect(() => {
-    map.setView(center, zoom ?? map.getZoom());
-  }, [center, zoom, map]);
+    if (fly && zoom) {
+      map.flyTo(center, zoom, { duration: 0.8 });
+    } else {
+      map.setView(center, zoom ?? map.getZoom());
+    }
+  }, [center, zoom, fly, map]);
   return null;
 };
 
@@ -93,12 +97,122 @@ const SelectVisibleBoundsButton: React.FC<{
   );
 };
 
+// Dedicated Client Marker with automatic Popup trigger on focus
+interface ClientMapMarkerProps {
+  client: Client;
+  isSelected: boolean;
+  selIdx: number;
+  isFocused: boolean;
+  icon: L.DivIcon;
+  onToggleSelectClient?: (clientId: string) => void;
+  onFocusClient?: (clientId: string) => void;
+  isPickingLocation?: boolean;
+}
+
+const ClientMapMarker: React.FC<ClientMapMarkerProps> = ({
+  client,
+  isSelected,
+  selIdx,
+  isFocused,
+  icon,
+  onToggleSelectClient,
+  onFocusClient,
+  isPickingLocation = false
+}) => {
+  const markerRef = useRef<L.Marker | null>(null);
+
+  useEffect(() => {
+    if (isFocused && markerRef.current) {
+      markerRef.current.openPopup();
+    }
+  }, [isFocused]);
+
+  const handleMarkerClick = () => {
+    if (isPickingLocation) return;
+    if (onFocusClient) {
+      onFocusClient(client.id);
+    }
+    if (onToggleSelectClient) {
+      onToggleSelectClient(client.id);
+    }
+  };
+
+  return (
+    <Marker
+      ref={markerRef}
+      position={[client.latitude, client.longitude]}
+      icon={icon}
+      zIndexOffset={isFocused ? 1500 : (isSelected ? 600 : 50)}
+      eventHandlers={{
+        click: handleMarkerClick
+      }}
+    >
+      <Popup>
+        <div className="p-2 text-slate-800 dark:text-slate-100 min-w-[190px]">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <h3 className="font-extrabold text-sm">{client.name}</h3>
+            {isSelected && (
+              <span className="bg-emerald-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full">
+                #{selIdx + 1}
+              </span>
+            )}
+          </div>
+          <p className="text-xs mb-1"><b>Dirección:</b> {client.address}</p>
+          {client.phone && (
+            <div className="flex items-center justify-between gap-1 mb-1 text-xs">
+              <span><b>Tel:</b> {client.phone}</span>
+              <a
+                href={`https://wa.me/${formatWhatsAppPhone(client.phone)}?text=${encodeURIComponent(`¡Hola *${client.name}*! Te escribimos desde Optirutas.`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-[11px] font-black text-emerald-700 bg-emerald-100 hover:bg-emerald-200 px-2 py-0.5 rounded-lg border border-emerald-300 no-underline"
+                title="Enviar WhatsApp directo"
+              >
+                <span>💬 WA</span>
+              </a>
+            </div>
+          )}
+          {client.email && <p className="text-xs mb-1"><b>Email:</b> {client.email}</p>}
+
+          <div className="flex items-center justify-between gap-2 pt-2 mt-2 border-t border-slate-200/60">
+            {onToggleSelectClient && (
+              <button
+                type="button"
+                onClick={() => onToggleSelectClient(client.id)}
+                className={`text-[11px] font-bold px-2.5 py-1 rounded-lg text-white transition-colors cursor-pointer ${
+                  isSelected
+                    ? 'bg-rose-500 hover:bg-rose-600'
+                    : 'bg-emerald-600 hover:bg-emerald-700'
+                }`}
+              >
+                {isSelected ? 'Quitar de ruta' : '+ Seleccionar'}
+              </button>
+            )}
+            {client.mapLink && (
+              <a 
+                href={client.mapLink} 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className="text-[11px] font-bold text-indigo-600 hover:underline"
+              >
+                Google Maps →
+              </a>
+            )}
+          </div>
+        </div>
+      </Popup>
+    </Marker>
+  );
+};
+
 interface MapViewProps {
   stops: Stop[];
   clients: Client[];
   vehicles?: Vehicle[];
   activeTab: string;
   selectedCoordinates?: [number, number];
+  focusedClientId?: string | null;
+  onFocusClient?: (clientId: string) => void;
   selectedDayLabel?: string;
   isPickingLocation?: boolean;
   onPickLocation?: (coords: [number, number]) => void;
@@ -122,6 +236,8 @@ export const MapView: React.FC<MapViewProps> = ({
   vehicles = [],
   activeTab,
   selectedCoordinates,
+  focusedClientId = null,
+  onFocusClient,
   selectedDayLabel,
   isPickingLocation = false,
   onPickLocation,
@@ -379,7 +495,24 @@ export const MapView: React.FC<MapViewProps> = ({
   };
 
   // Create custom markers using L.divIcon
-  const createClientIcon = (selectionOrder: number | null) => {
+  const createClientIcon = (selectionOrder: number | null, isFocused: boolean = false) => {
+    if (isFocused) {
+      return L.divIcon({
+        className: 'custom-focused-client-marker',
+        html: `
+          <div class="relative flex items-center justify-center">
+            <div class="absolute w-12 h-12 bg-purple-500 rounded-full opacity-60 animate-ping"></div>
+            <div class="absolute w-10 h-10 bg-purple-600/40 rounded-full animate-pulse"></div>
+            <div class="w-9 h-9 bg-gradient-to-tr from-purple-600 via-indigo-600 to-pink-500 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center shadow-2xl shadow-purple-500/80 text-white font-black text-xs scale-110">
+              ${selectionOrder !== null ? selectionOrder : '★'}
+            </div>
+          </div>
+        `,
+        iconSize: [36, 36],
+        iconAnchor: [18, 18]
+      });
+    }
+
     if (selectionOrder !== null) {
       return L.divIcon({
         className: 'custom-selected-client-marker',
@@ -1344,80 +1477,25 @@ export const MapView: React.FC<MapViewProps> = ({
           );
         })}
 
-        {/* Render Clients on Map */}
+        {/* Render Clients on Map with dynamic bidirectional focus */}
         {activeTab === 'clients' && clients.map(client => {
           if (client.latitude === 0 || client.longitude === 0) return null;
           const selIdx = selectedClientIds.indexOf(client.id);
           const isSelected = selIdx !== -1;
+          const isFocused = focusedClientId === client.id;
 
           return (
-            <Marker 
-              key={`client-${client.id}`} 
-              position={[client.latitude, client.longitude]}
-              icon={createClientIcon(isSelected ? selIdx + 1 : null)}
-              eventHandlers={{
-                click: () => {
-                  if (quickMapSelectMode && onToggleSelectClient && !isPickingLocation) {
-                    onToggleSelectClient(client.id);
-                  }
-                }
-              }}
-            >
-              <Popup>
-                <div className="p-2 text-slate-800 dark:text-slate-100 min-w-[190px]">
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <h3 className="font-extrabold text-sm">{client.name}</h3>
-                    {isSelected && (
-                      <span className="bg-emerald-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full">
-                        #{selIdx + 1}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs mb-1"><b>Dirección:</b> {client.address}</p>
-                  {client.phone && (
-                    <div className="flex items-center justify-between gap-1 mb-1 text-xs">
-                      <span><b>Tel:</b> {client.phone}</span>
-                      <a
-                        href={`https://wa.me/${formatWhatsAppPhone(client.phone)}?text=${encodeURIComponent(`¡Hola *${client.name}*! Te escribimos desde Optirutas.`)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-[11px] font-black text-emerald-700 bg-emerald-100 hover:bg-emerald-200 px-2 py-0.5 rounded-lg border border-emerald-300 no-underline"
-                        title="Enviar WhatsApp directo"
-                      >
-                        <span>💬 WA</span>
-                      </a>
-                    </div>
-                  )}
-                  {client.email && <p className="text-xs mb-1"><b>Email:</b> {client.email}</p>}
-
-                  <div className="flex items-center justify-between gap-2 pt-2 mt-2 border-t border-slate-200/60">
-                    {onToggleSelectClient && (
-                      <button
-                        type="button"
-                        onClick={() => onToggleSelectClient(client.id)}
-                        className={`text-[11px] font-bold px-2.5 py-1 rounded-lg text-white transition-colors cursor-pointer ${
-                          isSelected
-                            ? 'bg-rose-500 hover:bg-rose-600'
-                            : 'bg-emerald-600 hover:bg-emerald-700'
-                        }`}
-                      >
-                        {isSelected ? 'Quitar de ruta' : '+ Seleccionar'}
-                      </button>
-                    )}
-                    {client.mapLink && (
-                      <a 
-                        href={client.mapLink} 
-                        target="_blank" 
-                        rel="noopener noreferrer" 
-                        className="text-[11px] font-bold text-indigo-600 hover:underline"
-                      >
-                        Google Maps →
-                      </a>
-                    )}
-                  </div>
-                </div>
-              </Popup>
-            </Marker>
+            <ClientMapMarker
+              key={`client-${client.id}`}
+              client={client}
+              isSelected={isSelected}
+              selIdx={selIdx}
+              isFocused={isFocused}
+              icon={createClientIcon(isSelected ? selIdx + 1 : null, isFocused)}
+              onToggleSelectClient={onToggleSelectClient}
+              onFocusClient={onFocusClient}
+              isPickingLocation={isPickingLocation}
+            />
           );
         })}
 

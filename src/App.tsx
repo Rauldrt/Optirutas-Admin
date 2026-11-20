@@ -260,19 +260,27 @@ function App() {
     };
   }, [session?.companyId]);
 
-  const handleSelectLocation = (coords: [number, number]) => {
+  // Active focused client for dynamic bidirectional sync between list and map
+  const [focusedClientId, setFocusedClientId] = useState<string | null>(null);
+
+  const handleSelectLocation = (coords: [number, number], clientId?: string) => {
     setSelectedCoords(coords);
+    if (clientId) {
+      setFocusedClientId(clientId);
+    }
     
     // Smoothly scroll to map on mobile
-    setTimeout(() => {
-      const mapElement = document.getElementById('map-section');
-      if (mapElement) {
-        mapElement.scrollIntoView({ behavior: 'smooth' });
-      }
-    }, 100);
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+      setTimeout(() => {
+        const mapElement = document.getElementById('map-section');
+        if (mapElement) {
+          mapElement.scrollIntoView({ behavior: 'smooth' });
+        }
+      }, 100);
+    }
 
     // Reset selected coords after a brief moment so clicking the same item triggers effect again
-    setTimeout(() => setSelectedCoords(undefined), 1000);
+    setTimeout(() => setSelectedCoords(undefined), 1500);
   };
 
   const handleMapPick = (coords: [number, number]) => {
@@ -808,6 +816,8 @@ function App() {
                   selectedClientIds={selectedClientIds}
                   onSetSelectedClientIds={setSelectedClientIds}
                   openBatchModalSignal={openBatchModalSignal}
+                  focusedClientId={focusedClientId}
+                  onFocusClient={setFocusedClientId}
                   onSwitchToStopsDay={(day) => {
                     setSelectedDay(day);
                     setCurrentTab('stops');
@@ -829,6 +839,8 @@ function App() {
                   clients={clients} 
                   activeTab="clients" 
                   selectedCoordinates={selectedCoords}
+                  focusedClientId={focusedClientId}
+                  onFocusClient={setFocusedClientId}
                   isPickingLocation={isPickingLocation}
                   onPickLocation={handleMapPick}
                   onCancelPickLocation={handleCancelMapPick}
